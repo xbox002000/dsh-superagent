@@ -5,7 +5,7 @@ import { sameName } from '../infra/text.ts'
 import { GithubAccountsSchema } from '../deployment.ts'
 import { CliError, validItems, type Tally } from '../infra/commands.ts'
 import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
-import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, conflictTrigger, githubAddress, issueTrigger, IssueSchema, pullTrigger, SOURCE }
+import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, conflictTrigger, githubAddress, issueTrigger, IssueSchema, pullTrigger, revertTrigger, SOURCE }
   from './github-trigger.ts'
 import { githubLink, sendGithub } from './github-channel.ts'
 import type { GithubComment, PullRef } from './github-trigger.ts'
@@ -27,7 +27,9 @@ const GithubConfigSchema = GithubAccountsSchema.extend({ pollSeconds: z.number()
   observeIssues: z.boolean().default(false), observePulls: z.boolean().default(false), observeComments: z.boolean().default(false),
   observeCi: z.boolean().default(false),
   // Auto-merge is the Executor's request; these decide whether the Source lets it stand.
-  autoMerge: z.boolean().default(false), autoMergePaths: z.string().default(''), autoMergeMaxFiles: z.number().int().min(1).max(200).default(20) }).strict()
+  autoMerge: z.boolean().default(false), autoMergePaths: z.string().default(''), autoMergeMaxFiles: z.number().int().min(1).max(200).default(20),
+  // Minutes after a merge during which the default branch's checks are watched for a break; 0 watches nothing.
+  watchMergedMinutes: z.number().int().min(0).max(240).default(0) }).strict()
 export type GithubConfig = z.infer<typeof GithubConfigSchema>
 const OBSERVED = { issues: 'observeIssues', pulls: 'observePulls', comments: 'observeComments', ci: 'observeCi' } as const
 type Scope = keyof typeof OBSERVED
@@ -61,6 +63,8 @@ export const githubKind: SourceKind<GithubConfig> = {
       hint: { zh: '每行一个，或逗号分隔；支持 * 与 **，例如 docs/*、src/**、README.md。留空表示任何路径都不允许自动合并。', en: 'One per line, or comma separated; `*` and `**` are supported, such as docs/*, src/**, README.md. Empty allows no path to auto-merge.' } },
     { key: 'autoMergeMaxFiles', type: 'number', advanced: true, min: 1, max: 200, label: { zh: '自动合并的文件数上限', en: 'Files an auto-merge may change' },
       hint: { zh: '超过这个数量的改动，即使路径都符合也不允许自动合并。', en: 'A change touching more files than this may not auto-merge, even when every path is allowed.' } },
+    { key: 'watchMergedMinutes', type: 'number', advanced: true, min: 0, max: 240, label: { zh: '合併後觀察期（分鐘）', en: 'Watch the default branch after a merge (minutes)' },
+      hint: { zh: '合併後這段時間內追蹤該合併 commit 的檢查；失敗時會發出一個「回退這個合併」的請求，由平常的流程評估並開回退 PR。0 表示不觀察。', en: 'For this long after a merge, the checks of the merge commit are watched; a failure asks for a revert through the ordinary pipeline, which assesses it and opens the revert pull request. 0 watches nothing.' } },
     { key: 'observeCi', type: 'switch', label: { zh: '接收默认分支的 CI', en: 'Receive the default branch\'s CI' },
       hint: { zh: '打开后，默认分支的 CI 失败和恢复会收到，由策略的接收表决定是否成为候选。', en: 'Failures of the default branch\'s CI, and its recovery, are received, and the Policy\'s admission table decides whether they become candidates.' } }],
   // What the Source observes across the repository it receives in full; elsewhere, only what addresses the agent.
@@ -290,6 +294,7 @@ export async function pollRound(ctx: SourceContext, signal?: AbortSignal): Promi
   const notified = await pollNotifications(ctx, round).then(value => ({ value }), (error: unknown) => ({ error }))
   await pollRepository(ctx, round)
   await pollTicketPulls(ctx, signal, round)
+  await pollMerged(ctx, round)
   await pollThreads(ctx, signal, round)
   if ('error' in notified) throw notified.error
   const { count, interval } = notified.value
@@ -434,6 +439,36 @@ async function pollChecks(ctx: SourceContext, round: Round, number: number, pr: 
   if (previous) await ctx.receive(ciTrigger(pr, revision, ciSummary(snapshot, `PR #${number}`, `github/pulls/${number}/checks`)))
   ctx.state.set(KV.github.ci(number), { fingerprint, revision })
   ctx.threads.describe(`github:${number}`, { facts: { ci: ciFact(ciCounts(snapshot)) } })
+}
+/**
+ * Watches the default branch for a while after a merge, and asks for a revert when that merge's own commit fails its checks.
+ * A merge that is green on its pull request can still break the branch it lands on, and nobody is watching the branch then.
+ */
+async function pollMerged(ctx: SourceContext, round: Round): Promise<void> {
+  const minutes = ctx.config<GithubConfig>(SOURCE)?.watchMergedMinutes ?? 0
+  if (!minutes) return
+  const now = Date.parse(round.started)
+  for (const name of ctx.state.keys(KV.github.merged as never)) {
+    const number = Number(name.slice(KV.github.merged.prefix.length))
+    const record = Number.isFinite(number) ? ctx.state.get(KV.github.merged(number)) : undefined
+    if (!record) continue
+    if (now - Date.parse(record.at) > minutes * 60_000) { ctx.state.set(KV.github.merged(number), undefined); continue }
+    if (stopped(ctx, round)) return
+    const snapshot = await pullChecks(ctx.commands.withSignal(round.signal), record.sha, round.tally)
+    const failures = ciFailures(snapshot)
+    if (!failures.length) {
+      if (record.failures?.length) ctx.state.set(KV.github.merged(number), { ...record, failures: [] })
+      continue
+    }
+    if (JSON.stringify(failures) === JSON.stringify(record.failures ?? [])) continue
+    ctx.state.set(KV.github.merged(number), { ...record, failures })
+    ctx.threads.describe(`github:${number}`, { facts: { mergedCi: { label: { zh: '合併後 CI', en: 'CI after merge' },
+      value: { zh: '失敗', en: 'failed' }, problem: true } } })
+    await ctx.receive(revertTrigger({ number, html_url: `https://github.com/${ctx.deployment.repository}/pull/${number}`,
+      user: { login: ctx.deployment.github.login }, sha: record.sha },
+    `The merge of PR #${number} (commit ${record.sha.slice(0, 7)}) fails the default branch's checks: ${failures.slice(0, 5).join(', ')}. `
+    + 'Revert that merge on a new branch and open a pull request that reverts it, or report blocked with what you found.'))
+  }
 }
 /**
  * Watches whether a ticket's PR still merges, and tells its Executor to rebase when it does not. Two Tickets whose workers

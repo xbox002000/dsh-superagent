@@ -174,8 +174,14 @@ export function settingsPolicy(settings: Settings, sources: SourceScope): Policy
     const bot = trigger.actor.id ? listedBot(settings, trigger.actor) : undefined
     if (trigger.actor.id && !bot) return { admissible: false, reason: 'not_human' }
     const scope = listened(sources, trigger.source, trigger.meta)
-    if (!scope.listened || !(trigger.addressed || scope.observed)) return { admissible: false, reason: 'not_human' }
+    if (!scope.listened) return { admissible: false, reason: 'not_human' }
     const recorded = { source: trigger.source, scope: trigger.meta, ...scope.row === undefined ? {} : { row: scope.row } }
+    // A revert request follows a merge the Source watched break the default branch. No Ticket is live then, so it has to reach
+    // Eval as a candidate, or the break would only be reported and never repaired; it is addressed to the agent by definition.
+    if (trigger.meta.revert === true) {
+      return { admissible: true, strength: 'inferred', basis: { ...recorded, via: 'addressed', addressed: 'mention' } }
+    }
+    if (!(trigger.addressed || scope.observed)) return { admissible: false, reason: 'not_human' }
     const addressed = trigger.addressed ? { addressed: trigger.addressed } : {}
     if (bot) {
       if (mode === 'off') return { admissible: false, reason: 'admission_ignored' }

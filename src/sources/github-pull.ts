@@ -11,6 +11,7 @@ const PullSchema = z.looseObject({
   title: z.string().optional(), state: z.string(), html_url: z.string(), user: UserSchema,
   body: z.string().nullish(), created_at: z.string().optional(),
   merged: z.boolean().optional(), merged_at: z.string().nullish(), closed_at: z.string().nullish(), auto_merge: z.unknown().optional(),
+  merge_commit_sha: z.string().nullish(),
   // `mergeable` is null while GitHub computes it; `mergeable_state` names why, such as `dirty` for a conflict.
   mergeable: z.boolean().nullish(), mergeable_state: z.string().nullish(),
   head: z.looseObject({ sha: z.string(), ref: z.string(), repo: z.looseObject({ full_name: z.string() }).nullish() }),
@@ -54,7 +55,9 @@ export async function enforceAutoMerge(ctx: SourceContext, number: number, pr: P
     if (previous) { ctx.state.set(name, undefined); describe(null) }
     return
   }
-  const files = await ctx.commands.withSignal(signal).api(z.array(PullFileSchema), `pulls/${number}/files?per_page=100`)
+  let files: { filename: string }[]
+  try { files = await ctx.commands.withSignal(signal).api(z.array(PullFileSchema), `pulls/${number}/files?per_page=100`) }
+  catch { return /* A failed read leaves the request standing; the next poll decides. */ }
   const patterns = autoMergePatterns(policy.autoMergePaths)
   const outside = files.map(file => file.filename).filter(file => !patterns.some(pattern => matchesPath(file, pattern)))
   const listed = (names: string[]): string => names.slice(0, 3).join(', ') + (names.length > 3 ? ` and ${names.length - 3} more` : '')
@@ -126,6 +129,8 @@ function bind(ctx: SourceContext, ticketId: string, pr: Pull, own: boolean): voi
  * Their subscription to the PR stays so a later human comment there resumes the ticket.
  */
 function closePull(ctx: SourceContext, pr: Pull): void {
+  // A merge is what the default branch now runs, so remember it: the Source watches that commit for a while afterwards.
+  if (pr.merged) ctx.state.set(KV.github.merged(pr.number), { sha: pr.merge_commit_sha ?? pr.head.sha, at: pr.merged_at ?? new Date().toISOString() })
   if (!ctx.tickets.open().some(ticket => pullsOf(ticket, true).includes(pr.number))) return
   const at = pr.merged_at ?? pr.closed_at ?? new Date().toISOString()
   ctx.tickets.threadClosed({ source: SOURCE, id: String(pr.number) }, pr.merged ? 'merged' : 'closed', at)

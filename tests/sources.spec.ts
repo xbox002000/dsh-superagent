@@ -451,8 +451,9 @@ describe('github source', () => {
     expect(h.executor.stop).not.toHaveBeenCalled()
     expect(await observePull(h, endedPull(21, '2026-09-03T00:00:00Z'))).toBe(true)
     expect(h.store.tickets.get('t3')).toMatchObject({ ended: { outcome: 'merged', at: '2026-09-03T00:00:00.000Z' } })
-    // A PR's end is kept on the tickets that follow it, so binding and closing write no key-value record.
-    expect(h.store.keys('github-')).toEqual([])
+    // A PR's end is kept on the tickets that follow it; a merge also records the commit the default branch now runs, so the
+    // Source can watch it for a while afterwards.
+    expect(h.store.keys('github-').sort()).toEqual(['github-merged:21', 'github-merged:22'])
     h.store.close()
   })
   it('follows a PR it opened again when it reopens, while another PR it opened is open', async () => {
@@ -1029,7 +1030,8 @@ it('reports GitHub as failing only after the configured number of consecutive fa
   expect(pollFailure(2, 3, eof)).toBeUndefined()
   expect(pollFailure(3, 3, eof)).toEqual({ state: 'error', detail: '3 consecutive failed polls; last: Error: Get "https://api.github.com/x": EOF', code: 'pollFailures', values: { count: '3', error: 'Error: Get "https://api.github.com/x": EOF' } })
   expect(githubKind.schema.parse({})).toEqual({ repository: '', cli: '', pollSeconds: 60, failuresBeforeError: 3, observeIssues: false,
-    observePulls: false, observeComments: false, observeCi: false })
+    observePulls: false, observeComments: false, observeCi: false,
+    autoMerge: false, autoMergePaths: '', autoMergeMaxFiles: 20, watchMergedMinutes: 0 })
 })
 describe('feishu event consumer', () => {
   let dir: string

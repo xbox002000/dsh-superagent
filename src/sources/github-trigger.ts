@@ -107,6 +107,16 @@ export function ciTrigger(pr: { number: number; html_url: string; user: { login:
     meta: { number: pr.number, isPr: true, prAuthor: pr.user.login, ci: true, revision } }
 }
 /**
+ * Builds a trigger when a merge broke the default branch. The pull request's ticket ended with the merge, so this carries no
+ * live Ticket and is assessed like any new request; keying on the merge commit reports one break once.
+ */
+export function revertTrigger(pr: { number: number; html_url: string; user: { login: string }; sha: string }, summary: string): Trigger {
+  return { id: key('github-revert', String(pr.number), pr.sha), source: SOURCE, threads: [{ source: SOURCE, id: String(pr.number) }],
+    actor: { source: SOURCE, id: '' }, human: false, at: new Date().toISOString(),
+    text: summary, channel: githubChannel(pr.number), url: pr.html_url,
+    meta: { number: pr.number, isPr: true, prAuthor: pr.user.login, kind: 'pull', revert: true, sha: pr.sha } }
+}
+/**
  * Builds a trigger for an auto-merge the Source withdrew, keyed by the head commit so one verdict is reported once. It tells
  * the Ticket that the change is now waiting for a person, which the Executor may act on (by shrinking the change) or not.
  */
