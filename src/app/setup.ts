@@ -66,8 +66,10 @@ export class Setup {
       : resolveDeployment(machine, settings.sources.github?.config, this.probe())
     await check.catch((error: unknown) => { if (!(error instanceof SetupError) || error.place === block.slice(7)) throw error })
   }
+  /** Whether the Source lets a worker ask GitHub to merge on its own; the gh shim refuses `--auto` while it is off. */
+  private autoMergeAllowed = false
   async blockCommands(blocked: readonly string[]): Promise<void> {
-    if (this.resolved) await writeEnvironment(this.resolved, blocked)
+    if (this.resolved) await writeEnvironment(this.resolved, blocked, this.autoMergeAllowed)
   }
   restore(): void { this.restoreEnvironment?.(); this.restoreEnvironment = undefined }
   /** Probes CLIs the way worker shells run them, using `stateDir` as `cwd` since it exists even before the repository clone is valid. */
@@ -90,7 +92,8 @@ export class Setup {
       if (error instanceof SetupError) throw error
       throw new SetupError('environmentFailed', { output: error instanceof Error ? error.message : String(error) })
     }
-    await writeEnvironment(resolved, settings.executor.blockedCommands).catch(machineProblem)
+    this.autoMergeAllowed = settings.sources.github?.config?.autoMerge === true
+    await writeEnvironment(resolved, settings.executor.blockedCommands, this.autoMergeAllowed).catch(machineProblem)
     this.restoreEnvironment = applyEnvironment(this.variables, machine.stateDir, this.path)
     await verifyEnvironment(resolved, context.subprocess, lifetime).catch((error: unknown) => {
       this.restore()

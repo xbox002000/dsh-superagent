@@ -10,7 +10,7 @@ import type { SubprocessOutputReader, SubprocessRuntime } from '@deepseek-ai/dsh
 import type { Deployment } from '../deployment.ts'
 import { SetupError } from '../setup.ts'
 import { CliError } from './commands.ts'
-import { carriesMarker, failShim, runShim, shimFile, shimMarker, shimTemporary, WINDOWS } from './platform.ts'
+import { carriesMarker, autoMergeGuard, failShim, runShim, shimFile, shimMarker, shimTemporary, WINDOWS } from './platform.ts'
 
 const MARKER = '# Written by dsh-superagent on every start; edits are lost.'
 /** Markers of files written under the project's earlier names (`dsh-tag`, `dsh-go`, `dsh-freelancer`), which `dsh-superagent` owns and replaces too. */
@@ -78,7 +78,8 @@ async function own(file: string, text: string, mode = 0o644): Promise<void> {
  * Atomically writes worker CLI shims and the isolated git configuration file into the state directory, refusing to overwrite foreign files.
  * Each shim strips the shim directory from PATH before exec so wrapper scripts resolving `gh` or `lark-cli` by name reach the real binary.
  */
-export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' | 'repository' | 'github' | 'feishu'>, blockedCommands: readonly string[]): Promise<void> {
+export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' | 'repository' | 'github' | 'feishu'>, blockedCommands: readonly string[],
+  autoMergeAllowed = false): Promise<void> {
   const { stateDir, repository, github, feishu } = deployment
   const dir = workerBin(stateDir)
   await mkdir(dir, { recursive: true })
@@ -97,9 +98,10 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   const pathWithoutShims = withoutDirectory(process.env.PATH ?? '', dir)
   // Keep the host's account selection: a shim run outside the host process would otherwise act as the operator's account.
   const inherited: Record<string, string> = process.env.GH_CONFIG_DIR ? { GH_CONFIG_DIR: process.env.GH_CONFIG_DIR } : {}
-  const run = (program: string): string => runShim(program, dir, pathWithoutShims, inherited)
+  const run = (program: string, guard?: string): string => runShim(program, dir, pathWithoutShims, inherited, guard)
   const fail = (message: string): string => failShim(message)
-  await shim('gh', run(github.cli))
+  await shim('gh', run(github.cli, autoMergeAllowed ? undefined
+    : autoMergeGuard('auto-merge is off for this Source: open the pull request and let a person merge it, or ask for the paths to be allowed')))
   await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
   for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {
     await shim(name, fail(`${name} is blocked in this installation; use gh, which acts as ${github.login}.`))

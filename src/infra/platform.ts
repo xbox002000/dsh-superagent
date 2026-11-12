@@ -35,12 +35,12 @@ export const shimTemporary = (dir: string, file: string, pid: number): string =>
 /**
  * Body of a shim that runs `program` with the caller's arguments and `dir` removed from PATH, so a wrapper that resolves
  * `gh` by name reaches the real binary. Windows cannot rewrite an environment variable, so its PATH is baked in and `env`
- * entries are exported with `set`; POSIX strips the directory at run time.
+ * entries are exported with `set`; POSIX strips the directory at run time. `guard` runs first and may exit non-zero.
  */
-export function runShim(program: string, dir: string, path: string, env: Record<string, string>): string {
+export function runShim(program: string, dir: string, path: string, env: Record<string, string>, guard?: string): string {
   if (WINDOWS) {
-    return ['@echo off', `set "PATH=${path}"`, ...Object.entries(env).map(([name, value]) => `set "${name}=${value}"`), `"${program}" %*`]
-      .join('\r\n')
+    return ['@echo off', `set "PATH=${path}"`, ...Object.entries(env).map(([name, value]) => `set "${name}=${value}"`),
+      ...guard ? [guard] : [], `"${program}" %*`].join('\r\n')
   }
   const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
   const withoutShims = [
@@ -49,7 +49,28 @@ export function runShim(program: string, dir: string, path: string, env: Record<
     'set +f', 'unset IFS', 'PATH=$rest', 'export PATH',
   ]
   return [...withoutShims, ...Object.entries(env).map(([name, value]) => `${name}=${quote(value)}; export ${name}`),
-    `exec ${quote(program)} "$@"`].join('\n')
+    ...guard ? [guard] : [], `exec ${quote(program)} "$@"`].join('\n')
+}
+
+/**
+ * Refuses `pr merge … --auto` from a worker CLI. The Source can only veto an auto-merge after the fact, and GitHub merges
+ * as soon as the checks pass, so a pull request that is already green merges before the veto: the request must not be made.
+ */
+export function autoMergeGuard(message: string): string {
+  if (WINDOWS) {
+    const escape = (value: string): string => value.replaceAll('%', '%%').replace(/[&|<>^]/g, character => `^${character}`)
+    return ['set "ARGS=%*"',
+      'echo %ARGS%|findstr /C:"--auto" >nul',
+      'if not errorlevel 1 (',
+      '  echo %ARGS%|findstr /C:"pr merge" >nul',
+      '  if not errorlevel 1 (',
+      `    echo ${escape(message)} 1>&2`,
+      '    exit /b 1',
+      '  )',
+      ')'].join('\r\n')
+  }
+  const quoted = `'${message.replaceAll("'", "'\\''")}'`
+  return ['case "$*" in', `  *"pr merge"*--auto*) echo ${quoted} >&2; exit 1 ;;`, 'esac'].join('\n')
 }
 
 /** Body of a shim that refuses to run: it prints `message` on standard error and exits non-zero. */
