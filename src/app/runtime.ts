@@ -50,6 +50,15 @@ import { executorTools, type ExecutorToolsHost } from './tools/executor.ts'
 // Source plugins interact with dsh-superagent exclusively through the `SourceHost` service interface.
 declare module '@deepseek-ai/cordis' { interface Context { orchestrator: SourceHost } }
 const now = (): string => new Date().toISOString()
+/**
+ * Setup problems an unreachable GitHub or a slow CLI can cause; a configuration mistake is reported at once instead, since
+ * retrying it only delays the message the operator has to act on anyway.
+ */
+const RETRYABLE_SETUP = new Set<SetupProblem['code']>(['agentCliSignedOut', 'agentCliNoAccount', 'repositoryUnreadable',
+  'repositoryUnreported', 'environmentFailed', 'feishuCliFailed', 'feishuNoBot'])
+const SETUP_RETRY = { attempts: 6, baseMs: 2_000, maxMs: 60_000 }
+/** Retries already scheduled in this process; a restart creates a new instance, so it lives outside one. */
+let setupRetryAttempt = 0
 
 /**
  * Composition root of dsh-superagent that connects `Store`, `Setup`, `Engine`, `SourceRegistry`, `Effects`, `Outbox`, `Passes`, `Sessions`, `Settings`, `Prompts`, `DshExecutor`, and `MasterAssessor`.
@@ -79,6 +88,7 @@ export class Runtime extends Service implements SourceHost {
   private readonly disposers: (() => void)[] = []
   private releaseLock?: () => Promise<void>
   private closingFlag = false
+  private setupRetry?: ReturnType<typeof setTimeout>
   private stopping?: Promise<void>
   private readonly sourceDeps: SourceContextDeps
   private readonly toolHost: MainToolsHost & ExecutorToolsHost
@@ -203,8 +213,10 @@ export class Runtime extends Service implements SourceHost {
     this.disposers.push(registerHttp(this.ctx, this.httpHost()))
     if (!await this.setup.run(this.store.settings())) {
       this.runtimeHealth.set({ ...health('paused', 'setupPending'), at: now() })
+      this.scheduleSetupRetry()
       return
     }
+    setupRetryAttempt = 0
     this.sessions.install()
     this.executor.install()
     await this.sessions.ensure(this.masterId, this.machine.stateDir, 'dsh-superagent orchestrator', 'orchestrator')
@@ -215,6 +227,23 @@ export class Runtime extends Service implements SourceHost {
     this.passes.start()
     this.effects.start()
     this.runtimeHealth.set({ state: 'ready', detail: 'Orchestrator is ready', at: now() })
+  }
+  /**
+   * Schedules one retry of the deployment check after a failure a network interruption can cause. The plugin restarts to
+   * re-run setup, as the panel's Check does; the attempt count lives outside the instance so a restart cannot reset it.
+   */
+  private scheduleSetupRetry(): void {
+    const problem = this.setup.problem
+    if (!problem || !RETRYABLE_SETUP.has(problem.code) || setupRetryAttempt >= SETUP_RETRY.attempts) return
+    const delay = Math.min(SETUP_RETRY.baseMs * 2 ** setupRetryAttempt, SETUP_RETRY.maxMs)
+    setupRetryAttempt++
+    const seconds = Math.round(delay / 1000)
+    this.ctx.logger.warn('dsh-superagent setup failed (%s); retrying in %ss: %s', problem.code, seconds, problem.detail)
+    // The panel shows this detail, so an operator can tell an automatic retry from a check that has given up.
+    this.runtimeHealth.set({ ...health('paused', 'setupPending'),
+      detail: `Waiting for the deployment check; retrying in ${seconds}s (attempt ${setupRetryAttempt}/${SETUP_RETRY.attempts})`, at: now() })
+    this.setupRetry = setTimeout(() => { this.setupRetry = undefined; if (!this.closing()) this.setup.restart() }, delay)
+    this.disposers.push(() => { if (this.setupRetry) { clearTimeout(this.setupRetry); this.setupRetry = undefined } })
   }
   private httpHost(): HttpHost {
     const runtime = this

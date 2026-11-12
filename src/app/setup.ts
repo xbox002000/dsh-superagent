@@ -43,7 +43,9 @@ export class Setup {
   configured(): boolean { return this.resolved !== undefined }
   /** Resolve deployment accounts and apply the worker environment, recording `SetupError` failures in `problem`/`feishuProblem` and rethrowing unexpected errors. */
   async run(settings: Settings): Promise<boolean> {
-    try { this.resolved = await this.resolve(settings); return true }
+    // A retry after a transient failure must not keep reporting the previous problem once it succeeds.
+    this.feishuProblem = undefined
+    try { this.resolved = await this.resolve(settings); this.problem = undefined; return true }
     catch (error) {
       if (!(error instanceof SetupError)) throw error
       this.problem = error.problem
