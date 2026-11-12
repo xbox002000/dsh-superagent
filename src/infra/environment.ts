@@ -10,6 +10,7 @@ import type { SubprocessOutputReader, SubprocessRuntime } from '@deepseek-ai/dsh
 import type { Deployment } from '../deployment.ts'
 import { SetupError } from '../setup.ts'
 import { CliError } from './commands.ts'
+import { carriesMarker, failShim, runShim, shimFile, shimMarker, shimTemporary, WINDOWS } from './platform.ts'
 
 const MARKER = '# Written by dsh-superagent on every start; edits are lost.'
 /** Markers of files written under the project's earlier names (`dsh-tag`, `dsh-go`, `dsh-freelancer`), which `dsh-superagent` owns and replaces too. */
@@ -60,9 +61,9 @@ export function agentVariables(stateDir: string): Record<string, string | undefi
 /** True when a regular file starts with the dsh-superagent marker in its first two lines; a symbolic link, directory, or other non-regular file never counts as written by dsh-superagent. */
 async function written(file: string): Promise<boolean> {
   if (!(await lstat(file)).isFile()) return false
-  // Windows shims carry the same marker behind a `REM`, and CRLF leaves a trailing carriage return.
-  const head = (await readFile(file, 'utf8')).split('\n', 2).map(line => line.replace(/\r$/, '').replace(/^REM\s+/, ''))
-  return [MARKER, ...LEGACY_MARKERS].some(marker => head.includes(marker))
+  // Windows shims carry the marker behind `REM`, and CRLF leaves a trailing carriage return (`carriesMarker` handles both).
+  const head = (await readFile(file, 'utf8')).split('\n', 2)
+  return [MARKER, ...LEGACY_MARKERS].some(marker => head.some(line => carriesMarker(line, marker)))
 }
 async function own(file: string, text: string, mode = 0o644): Promise<void> {
   let foreign = false
@@ -84,32 +85,20 @@ export async function writeEnvironment(deployment: Pick<Deployment, 'stateDir' |
   const before = await readdir(dir)
   for (const name of before) { const file = join(dir, name); if (!await written(file)) throw new SetupError('foreignFile', { file }) }
   // Workers may be running concurrently: write each shim to a temp file and atomically rename it so no command ever resolves past the shim directory.
-  // Windows resolves `gh` through PATHEXT, so its shim is `gh.cmd` and carries the marker behind `REM`; POSIX uses the bare name.
-  const windows = process.platform === 'win32'
   const kept = new Set<string>()
   const shim = async (name: string, body: string): Promise<void> => {
-    const file = windows ? `${name}.cmd` : name
-    const temporary = join(dir, `.${file}.${process.pid}.tmp`)
-    await writeFile(temporary, windows ? `REM ${MARKER}\r\n${body}\r\n` : `#!/bin/sh\n${MARKER}\n${body}\n`, { mode: 0o755 })
+    const file = shimFile(name)
+    const temporary = shimTemporary(dir, file, process.pid)
+    const marker = shimMarker(MARKER)
+    await writeFile(temporary, WINDOWS ? `${marker}\r\n${body}\r\n` : `#!/bin/sh\n${marker}\n${body}\n`, { mode: 0o755 })
     await rename(temporary, join(dir, file))
     kept.add(file)
   }
-  const withoutShims = [
-    `self=${shellQuote(dir)}`, 'rest=', 'IFS=:', 'set -f',
-    'for entry in $PATH; do [ "$entry" = "$self" ] || rest="${rest:+$rest:}$entry"; done',
-    'set +f', 'unset IFS', 'PATH=$rest', 'export PATH',
-  ].join('\n')
-  // cmd cannot rewrite an environment variable, so the Windows shim bakes in the PATH without this directory.
   const pathWithoutShims = withoutDirectory(process.env.PATH ?? '', dir)
-  const cmdEscape = (value: string): string => value.replaceAll('%', '%%').replace(/[&|<>^]/g, character => `^${character}`)
-  // Keep the host's account selection: a shim run outside the host process would otherwise act as the operator's own account.
-  const inherited = process.env.GH_CONFIG_DIR ? [`set "GH_CONFIG_DIR=${process.env.GH_CONFIG_DIR}"`] : []
-  const run = (program: string): string => windows
-    ? ['@echo off', `set "PATH=${pathWithoutShims}"`, ...inherited, `"${program}" %*`].join('\r\n')
-    : `${withoutShims}\nexec ${shellQuote(program)} "$@"`
-  const fail = (message: string): string => windows
-    ? ['@echo off', `echo ${cmdEscape(message)} 1>&2`, 'exit /b 1'].join('\r\n')
-    : `echo ${shellQuote(message)} >&2\nexit 1`
+  // Keep the host's account selection: a shim run outside the host process would otherwise act as the operator's account.
+  const inherited: Record<string, string> = process.env.GH_CONFIG_DIR ? { GH_CONFIG_DIR: process.env.GH_CONFIG_DIR } : {}
+  const run = (program: string): string => runShim(program, dir, pathWithoutShims, inherited)
+  const fail = (message: string): string => failShim(message)
   await shim('gh', run(github.cli))
   await shim('lark-cli', feishu ? run(feishu.cli) : fail('lark-cli is unavailable: this installation has no Feishu bot.'))
   for (const name of new Set(blockedCommands.filter(name => !WORKER_COMMANDS.includes(name)))) {

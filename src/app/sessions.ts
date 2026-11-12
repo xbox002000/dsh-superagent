@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { key, liveTicket, type Ticket } from '../core/index.ts'
 import { mandateInstructions, ticketOfSession } from '../executor/dsh.ts'
 import type { HealthEntry } from '../infra/health.ts'
+import { SHELL_TOOLS } from '../infra/platform.ts'
 import { AgentDelivery, messageId } from './delivery.ts'
 import type { Effects } from './effects.ts'
 import type { Variable } from './execution-environment.ts'
@@ -262,7 +263,7 @@ export class Sessions {
     if (master) {
       // DSH registers `pwsh` instead of `bash` on Windows, and a restriction that names a tool this Session cannot see is
       // refused, so name the shell tool it actually has; read it through the parent scope, which holds the preset's tools.
-      const shell = agent.ctx.tools.get('bash', scopeParentOf(agent)) ? 'bash' : 'pwsh'
+      const shell = SHELL_TOOLS.find(name => agent.ctx.tools.get(name, scopeParentOf(agent))) ?? SHELL_TOOLS[0]!
       binding.disposers.push(agent.ctx.tools.restrict({ allow: ['skill', shell, 'read', 'read_image', 'job_output', 'job_list', 'job_kill'] }),
         agent.ctx.tools.guard(execution => noWait(execution, () => this.routed(agent))))
     } else {
