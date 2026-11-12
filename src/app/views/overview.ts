@@ -32,6 +32,22 @@ export function evalsHealth(store: Store, now = Date.now()): Health {
     + `the latest on ${latest.threadKey}: ${reasonText(latest.reason)}` }
 }
 /**
+ * How the assessments turned out, so the rules can be tuned from evidence instead of guessed at. A Ticket a person closed
+ * or stopped after it was accepted is an accept that should not have been made; a Thread that later carries an accepted
+ * decision was work an ignore turned away and a person pushed through anyway.
+ */
+function calibration(store: Store, limit = 200) {
+  const accepted = store.read.decisionsOfKinds(['accept'], limit)
+  const ignored = store.read.decisionsOfKinds(['ignore'], limit)
+  const turnedDown = accepted.filter(decision => {
+    const outcome = decision.ticketId ? store.tickets.get(decision.ticketId)?.ended?.outcome : undefined
+    return outcome === 'closed' || outcome === 'stopped'
+  })
+  const laterWorked = ignored.filter(decision => store.decisions.byThread(decision.threadKey)
+    .some(other => other.id !== decision.id && other.kind === 'accept' && other.at > decision.at))
+  return { accepted: accepted.length, acceptedTurnedDown: turnedDown.length, ignored: ignored.length, ignoredLaterWorked: laterWorked.length }
+}
+/**
  * Builds the operator overview: active system problems, tickets awaiting human action, executor load, and 24-hour trigger flow.
  * @param setup - Setup problem to surface first (where setup stopped, or a Source paused by setup).
  */
@@ -75,6 +91,7 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue: 
     flow: { received, filtered, triggers: received - filtered, judged: judgement.judged, accepted: judgement.accepted,
       evaluating: evaluating.length, dropped: store.read.droppedSince(since) },
     policyVersion: policyVersionValue,
+    calibration: calibration(store),
   }
 }
 export type OverviewView = ReturnType<typeof overview>
