@@ -13,9 +13,10 @@ type Status = Pick<z.infer<typeof StatusSchema>, 'context' | 'state'>
 export interface CiSnapshot { head: string; checks: Check[]; statuses: Status[] }
 /** Check conclusions and status states that count as failures; `success`, `neutral`, `skipped`, and `stale` do not. */
 const FAILING = new Set(['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'error'])
-export function ciCounts(snapshot: CiSnapshot): { failed: number; running: number } {
+export function ciCounts(snapshot: CiSnapshot): { total: number; failed: number; running: number } {
   const statuses = snapshot.statuses ?? []
   return {
+    total: snapshot.checks.length + statuses.length,
     failed: snapshot.checks.filter(check => FAILING.has(check.conclusion ?? '')).length + statuses.filter(status => FAILING.has(status.state)).length,
     running: snapshot.checks.filter(check => check.status !== 'completed').length + statuses.filter(status => status.state === 'pending').length,
   }
@@ -28,17 +29,23 @@ export function ciSummary(snapshot: CiSnapshot, where: string, read: string): st
   const running = results.filter(result => result.running).map(result => result.name)
   const names = (list: string[]) => list.slice(0, 5).join(', ') + (list.length > 5 ? `, and ${list.length - 5} more` : '')
   const at = `on ${where} at ${snapshot.head.slice(0, 7)}`
+  // An empty check set is not a pass: say that nothing ran, so a ticket does not treat a repository without workflows as green.
+  if (!results.length) return `No CI checks are configured for ${where} at ${snapshot.head.slice(0, 7)}, so nothing ran.\nRead ${read} for the check list.`
   const still = running.length ? `; ${running.length} still running` : ''
   const line = failed.length ? `CI failed ${failed.length}/${results.length} ${at}: ${names(failed)}${still}`
     : running.length ? `CI running ${running.length}/${results.length} ${at}: ${names(running)}`
       : `CI passed ${results.length}/${results.length} ${at}`
+  // A red check is a gate, not a notification: the ticket must not claim to be done while its own pull request is failing.
+  if (failed.length) return `${line}\nFix these checks before reporting ready, or report blocked with what you tried.\nRead ${read} for every check.`
   return `${line}\nRead ${read} for every check.`
 }
 export function ciFailures(snapshot: CiSnapshot): string[] {
   return [...snapshot.checks.filter(check => FAILING.has(check.conclusion ?? '')).map(check => check.name),
     ...(snapshot.statuses ?? []).filter(status => FAILING.has(status.state)).map(status => status.context)].sort()
 }
-export function ciFact(counts: { failed: number; running: number }): ThreadFact {
+export function ciFact(counts: { total: number; failed: number; running: number }): ThreadFact {
+  // No checks configured is not the same as passing: a repository without workflows must not look green.
+  if (!counts.total) return { label: 'CI', value: { zh: '未設定', en: 'none' } }
   if (counts.failed) return { label: { zh: 'CI 失败', en: 'CI failed' }, value: String(counts.failed), problem: true }
   if (counts.running) return { label: { zh: 'CI 进行中', en: 'CI running' }, value: String(counts.running) }
   return { label: 'CI', value: { zh: '通过', en: 'passed' } }

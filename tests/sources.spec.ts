@@ -358,12 +358,13 @@ describe('github source', () => {
     expect(ticketBranch({ execution: execution('fix-title-1a2b3c') }, 'agent/fix-title-1a2b3c-2')).toBe(false)
     expect(ticketBranch({}, 'agent/x')).toBe(false)
   })
-  it('describes CI as one fact: failed checks first, then unfinished ones, otherwise passed', () => {
+  it('describes CI as one fact: failed checks first, then unfinished ones, otherwise passed, and none when nothing is configured', () => {
     const counts = ciCounts({ head: 'abc', checks: [{ name: 'e2e', status: 'completed', conclusion: 'failure' }, { name: 'lint', status: 'in_progress', conclusion: null }, { name: 'docs', status: 'completed', conclusion: 'skipped' }], statuses: [{ context: 'deploy', state: 'error' }, { context: 'preview', state: 'pending' }] })
-    expect(counts).toEqual({ failed: 2, running: 2 })
+    expect(counts).toEqual({ total: 5, failed: 2, running: 2 })
     expect(ciFact(counts)).toEqual({ label: { zh: 'CI 失败', en: 'CI failed' }, value: '2', problem: true })
-    expect(ciFact({ failed: 0, running: 1 })).toEqual({ label: { zh: 'CI 进行中', en: 'CI running' }, value: '1' })
-    expect(ciFact({ failed: 0, running: 0 })).toEqual({ label: 'CI', value: { zh: '通过', en: 'passed' } })
+    expect(ciFact({ total: 2, failed: 0, running: 1 })).toEqual({ label: { zh: 'CI 进行中', en: 'CI running' }, value: '1' })
+    expect(ciFact({ total: 2, failed: 0, running: 0 })).toEqual({ label: 'CI', value: { zh: '通过', en: 'passed' } })
+    expect(ciFact({ total: 0, failed: 0, running: 0 })).toEqual({ label: 'CI', value: { zh: '未設定', en: 'none' } })
   })
   it('starts a review comment\'s text with its file, line and diff lines, and keeps them and the comment it answers', () => {
     const comment: GithubComment = { id: 5, body: 'Use the theme token', user: { login: 'carol', type: 'User' }, path: 'src/render.ts', line: 43,
@@ -394,11 +395,15 @@ describe('github source', () => {
       check('unit', 'completed', 'success'), check('docs', 'in_progress', null)], statuses: [] }
     const read = 'github/pulls/9/checks'
     expect(ciSummary(failing, 'PR #9',
-      read)).toBe('CI failed 2/4 on PR #9 at abc1234: lint, e2e; 1 still running\nRead github/pulls/9/checks for every check.')
+      read)).toBe('CI failed 2/4 on PR #9 at abc1234: lint, e2e; 1 still running'
+      + '\nFix these checks before reporting ready, or report blocked with what you tried.'
+      + '\nRead github/pulls/9/checks for every check.')
     expect(ciSummary({ ...failing, checks: [check('docs', 'queued', null)] }, 'PR #9',
       read)).toMatch(/^CI running 1\/1 on PR #9 at abc1234: docs/)
     expect(ciSummary({ ...failing, checks: [check('unit', 'completed', 'success')] }, 'PR #9',
       read)).toMatch(/^CI passed 1\/1 on PR #9 at abc1234/)
+    expect(ciSummary({ ...failing, checks: [], statuses: [] }, 'PR #9',
+      read)).toMatch(/^No CI checks are configured for PR #9 at abc1234, so nothing ran\./)
   })
   it('binds a PR to the unique live ticket on its branch and ends tickets when the PR closes', async () => {
     const h = host()
