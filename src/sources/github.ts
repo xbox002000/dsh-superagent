@@ -5,7 +5,7 @@ import { sameName } from '../infra/text.ts'
 import { GithubAccountsSchema } from '../deployment.ts'
 import { CliError, validItems, type Tally } from '../infra/commands.ts'
 import { ciCounts, ciFact, ciFailures, ciSummary, githubThreadContext, pullChecks } from './github-read.ts'
-import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, githubAddress, issueTrigger, IssueSchema, pullTrigger, SOURCE }
+import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, conflictTrigger, githubAddress, issueTrigger, IssueSchema, pullTrigger, SOURCE }
   from './github-trigger.ts'
 import { githubLink, sendGithub } from './github-channel.ts'
 import type { GithubComment, PullRef } from './github-trigger.ts'
@@ -407,7 +407,10 @@ export async function pollTicketPulls(ctx: SourceContext, signal?: AbortSignal, 
     if (stopped(ctx, round)) return
     try {
       const pr = await pull(ctx, round, number)
-      if (pr.state !== 'closed' && !pr.merged) await pollChecks(ctx, round, number, pr)
+      if (pr.state !== 'closed' && !pr.merged) {
+        await pollChecks(ctx, round, number, pr)
+        await pollMergeable(ctx, round, number, pr)
+      }
     } catch (error) { if (!stopped(ctx, round)) failed(ctx, round, number, error) }
   }
 }
@@ -421,6 +424,26 @@ async function pollChecks(ctx: SourceContext, round: Round, number: number, pr: 
   if (previous) await ctx.receive(ciTrigger(pr, revision, ciSummary(snapshot, `PR #${number}`, `github/pulls/${number}/checks`)))
   ctx.state.set(KV.github.ci(number), { fingerprint, revision })
   ctx.threads.describe(`github:${number}`, { facts: { ci: ciFact(ciCounts(snapshot)) } })
+}
+/**
+ * Watches whether a ticket's PR still merges, and tells its Executor to rebase when it does not. Two Tickets whose workers
+ * changed the same file otherwise leave a conflict nobody notices until a person opens the pull request.
+ */
+async function pollMergeable(ctx: SourceContext, round: Round, number: number, pr: Pull): Promise<void> {
+  const previous = ctx.state.get(KV.github.mergeable(number))
+  const conflict = pr.mergeable === false
+  const fact = (value: 'conflict' | 'yes') => ctx.threads.describe(`github:${number}`,
+    { facts: { mergeable: { label: { zh: '可合併', en: 'Mergeable' }, value: value === 'conflict' ? { zh: '衝突', en: 'conflict' } : { zh: '是', en: 'yes' } } } })
+  if (!conflict) {
+    if (previous?.conflict) { ctx.state.set(KV.github.mergeable(number), { sha: pr.head.sha, conflict: false }); fact('yes') }
+    return
+  }
+  // One conflict per head commit: the Executor's own rebase moves the head, and a repeat of the same commit is not news.
+  if (previous?.conflict && previous.sha === pr.head.sha) return
+  ctx.state.set(KV.github.mergeable(number), { sha: pr.head.sha, conflict: true })
+  fact('conflict')
+  await ctx.receive(conflictTrigger(pr, `PR #${number} no longer merges into its base branch (state: ${pr.mergeable_state ?? 'dirty'}). `
+    + `Rebase this branch onto the latest base, resolve the conflicts, keep only this ticket's change, and push.`))
 }
 function nameThread(ctx: SourceContext, number: number, title: string): void {
   ctx.threads.patch(`github:${number}`, { title })

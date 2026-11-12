@@ -106,3 +106,15 @@ export function ciTrigger(pr: { number: number; html_url: string; user: { login:
     text: summary, channel: githubChannel(pr.number), url: pr.html_url,
     meta: { number: pr.number, isPr: true, prAuthor: pr.user.login, ci: true, revision } }
 }
+/**
+ * Builds a trigger for a PR that stopped merging, keyed by its head commit so one conflict is reported once. The ticket keeps
+ * the work; this only tells its Executor to rebase, the way a person's review comment would.
+ */
+export function conflictTrigger(pr: { number: number; html_url: string; user: { login: string }; head: { sha: string }; mergeable_state?: string | null },
+  summary: string): Trigger {
+  return { id: key('github-conflict', String(pr.number), pr.head.sha), source: SOURCE, threads: [{ source: SOURCE, id: String(pr.number) }],
+    actor: { source: SOURCE, id: '' }, human: false, at: new Date().toISOString(),
+    text: summary, channel: githubChannel(pr.number), url: pr.html_url,
+    meta: { number: pr.number, isPr: true, prAuthor: pr.user.login, kind: 'pull', conflict: true, sha: pr.head.sha,
+      state: pr.mergeable_state ?? 'dirty' } }
+}
