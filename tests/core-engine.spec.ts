@@ -1033,6 +1033,22 @@ describe('automatic input', () => {
     expect(part().assignments.length).toBe(1)
     expect(h.executor.start).toHaveBeenCalled()
   })
+  it('creates one ticket per part of a split request and holds the later parts', () => {
+    const h = harness()
+    h.engine.receive(trigger('1', { threads: [{ source: 'chat', id: 't1' }] })); h.pump()
+    h.decide(h.requests.at(-1)!, { kind: 'accept', title: 'Whole request', scope: 'big', reason: 'requested',
+      parts: [{ title: 'Part one', scope: 'first half' }, { title: 'Part two', scope: 'second half', dependsOn: [0] }] })
+    h.settle()
+    const part = (title: string) => h.repo.tickets.open().find(ticket => ticket.title === title)!
+    expect(h.repo.tickets.open().map(ticket => ticket.title).sort()).toEqual(['Part one', 'Part two'])
+    expect(part('Part one').assignments.length).toBe(1)
+    // The second part waits for the first, and says which ticket it was split from.
+    expect(part('Part two').assignments.length).toBe(0)
+    expect(part('Part two').dependsOn).toEqual([part('Part one').id])
+    expect(part('Part two').parent).toBe(part('Part one').id)
+    h.engine.stopTicket(part('Part one').id)
+    expect(part('Part two').assignments.length).toBe(1)
+  })
   it('launches a failed launch again for a person\'s message, but not for a Policy change', () => {
     const h = harness()
     h.engine.receive(trigger('1')); h.pump()

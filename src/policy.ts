@@ -31,6 +31,8 @@ export function directionAllowed(value: unknown): value is AdmissionDirection {
 export interface Assessment {
   decision: 'accept' | 'ignore' | 'unavailable'; rule_assessments: RuleAssessment[]; direction: unknown
   title: string; scope: string; reason: string; intent_evidence?: string | null; acknowledgement?: string | null; worktree_name?: string
+  /** Parts of one request too large for a single Ticket; `depends_on` indexes the earlier parts that must end first. */
+  parts?: { title: string; scope: string; worktree_name: string; note?: string; depends_on?: number[] }[]
 }
 /**
  * Validate an assessment against enabled rules and convert it into an engine `AssessmentOutcome`.
@@ -57,8 +59,10 @@ export function assessmentOutcome(assessment: Assessment, settings: Pick<Setting
     const proposal = { title, scope, worktree_name: name }
     return { kind: 'ignore', audit: { ...audit, would_accept: true, proposal }, reason: { code: 'observed', values: { text: assessment.reason } } }
   }
+  const parts = assessment.parts?.length ? { parts: assessment.parts.map(part => ({ title: part.title, scope: part.scope,
+    name: part.worktree_name, ...part.note ? { note: part.note } : {}, ...part.depends_on?.length ? { dependsOn: part.depends_on } : {} })) } : {}
   return { kind: 'accept', title, scope, reason: assessment.reason, ...(assessment.acknowledgement ? { acknowledgement: assessment.acknowledgement } : {}),
-    rules: matches.map(match => match.rule_id), audit, ...(name ? { name } : {}) }
+    rules: matches.map(match => match.rule_id), audit, ...(name ? { name } : {}), ...parts }
 }
 const DEFAULT_RULES = [
   { id: 'copy', name: 'Copy fixes', enabled: true, instruction: 'Explicit requests to correct a typo, wording, punctuation or existing translation. Preserve product promises and business meaning.' },

@@ -29,7 +29,7 @@ Return rule_assessments with exactly one entry for every enabled rule: rule_id, 
 Include negative judgments as matched=false; a reason saying that a rule does not apply cannot be a positive match.
 Never include disabled, unknown or repeated rule IDs.
 The host derives positive-only matches from those booleans.
-One source message produces at most one ticket.
+One source message produces at most one ticket, unless the request names work that has to happen in a determined order: then split it into `parts`, each a small change of its own, with `depends_on` naming the earlier parts it builds on. A part with a dependency does not start until that part has ended, so a later part may rely on the earlier one having landed. Do not split to do more work than the rules allow; every part must stand inside the same scope and rules as the whole.
 If matching rules conflict or the scope is ambiguous, ignore quietly.
 Rule order has no priority.
 

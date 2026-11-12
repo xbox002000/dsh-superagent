@@ -30,8 +30,12 @@ export const AssessmentSchema = z.object({
   intent_evidence: z.string().trim().min(1).max(700).nullish().describe('For acceptance: the quotes that establish the three facts.'),
   acknowledgement: AcknowledgementSchema.nullish().describe('For acceptance: one sentence in the source language, posted as a reply to the trigger; omit only when a matched rule asks for silence.'),
   reason: z.string().min(1).max(500),
+  // A request too large for one Ticket: each part becomes a Ticket, and `depends_on` indexes earlier parts that must end first.
+  parts: z.array(z.object({ title: z.string().min(1).max(160), worktree_name: WorktreeNameSchema, scope: z.string().max(1500),
+    note: z.string().max(2000).optional(), depends_on: z.array(z.number().int().nonnegative()).max(6).optional() }).strict())
+    .min(2).max(6).optional().describe('Use when one request must become several Tickets that build on each other; depends_on indexes earlier parts.'),
 }).strict().refine(value => value.decision !== 'accept' || !directionAllowed(value.direction) || !value.rule_assessments.some(rule => rule.matched)
-  || !!value.worktree_name, { message: 'Accepted work requires a short English worktree_name', path: ['worktree_name'] })
+  || !!value.worktree_name || !!value.parts?.length, { message: 'Accepted work requires a short English worktree_name', path: ['worktree_name'] })
 
 /** Character limits in the initial thread window: for the trigger itself, its two nearest neighbours, other window messages, and stub previews. */
 const TRIGGER_CHARS = 4000, NEAR_CHARS = 1200, WINDOW_CHARS = 400, STUB_CHARS = 50

@@ -310,8 +310,20 @@ export class Evals extends EnginePart {
     const mandate: Mandate = { strength, policyVersion, basis, actor, scope: outcome.scope }
     const ticketId = key('ticket', evaluation.id)
     const audit = outcome.audit ? { audit: outcome.audit } : {}
-    const decision = this.finish(thread, evaluation, { kind: 'accept', reason: reasonOf(outcome.reason), ...audit, mandate, ticketId })
-    this.tickets.create(ticketId, decision.id, mandate, evaluation, outcome, at)
+    const parts = outcome.parts ?? []
+    // A split request creates one Ticket per part; the first part keeps the plain ticket key so an un-split accept is unchanged.
+    const ids = parts.length ? parts.map((_, index) => key('ticket', evaluation.id, String(index))) : [ticketId]
+    const decision = this.finish(thread, evaluation, { kind: 'accept', reason: reasonOf(outcome.reason), ...audit, mandate, ticketId: ids[0]! })
+    if (!parts.length) {
+      this.tickets.create(ids[0]!, decision.id, mandate, evaluation, outcome, at)
+      return decision
+    }
+    parts.forEach((part, index) => {
+      const dependsOn = (part.dependsOn ?? []).flatMap(other => ids[other] ? [ids[other]!] : [])
+      this.tickets.create(ids[index]!, decision.id, { ...mandate, scope: part.scope }, evaluation, { ...outcome, title: part.title,
+        scope: part.scope, ...part.note ? { note: part.note } : {}, ...part.name ? { name: part.name } : {},
+        ...dependsOn.length ? { dependsOn } : {}, ...index ? { parent: ids[0]! } : {} }, at)
+    })
     return decision
   }
   /** Record an Eval's Decision; the Thread's own Eval ends with it, while a gate-only one leaves the Thread's Eval going. */

@@ -46,7 +46,12 @@ export type AssessmentOutcome =
     /** Tickets that must end before this one starts, when one request is split into parts that build on each other. */
     dependsOn?: string[]
     /** The Ticket this one was split from, so the parts read as one piece of work. */
-    parent?: string }
+    parent?: string
+    /**
+     * The parts of one request that is too large for a single Ticket, created instead of `title`/`scope`. A part's
+     * `dependsOn` indexes the parts before it, which become its Tickets' ids.
+     */
+    parts?: { title: string; scope: string; note?: string; name?: string; dependsOn?: number[] }[] }
   | { kind: 'stop'; ticketId: string; reason: string | Reason; audit?: Record<string, unknown> }
 
 /** Semantic judgement. `request` queues the assessment, idempotently per `evalId`; the outcome returns through `Engine.decide`. */
