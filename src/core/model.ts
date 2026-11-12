@@ -305,6 +305,13 @@ export interface Ticket {
   execution?: Execution
   /** The latest failed delivery of an Input to its worker, until a delivery succeeds. */
   delivery?: { error: string; at: string }
+  /**
+   * Tickets that must end before this one starts: a request split into parts that build on each other waits here, with no
+   * Assignment, until every one of them has ended. A dependency that no longer exists counts as ended.
+   */
+  dependsOn?: string[]
+  /** The Ticket this one was split from, so the parts read as one piece of work. */
+  parent?: string
 }
 /**
  * A Thread a ticket follows, by its key: `own` when the ticket opened it, such as its own pull request, and when and how it

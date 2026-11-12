@@ -41,17 +41,21 @@ export class Tickets extends EnginePart {
     const primary = this.repo.triggers.get(evaluation.primary ?? triggerIds.at(-1)!)
     const origin = { triggerId: primary?.id ?? triggerIds[0]!, triggerIds }
     let ticket: Ticket = { id, title: outcome.title, decisionId, mandate, channels: [], assignments: [], inputs: [], undelivered: [],
-      createdAt: at, updatedAt: at, origin }
+      createdAt: at, updatedAt: at, origin,
+      ...outcome.dependsOn?.length ? { dependsOn: [...new Set(outcome.dependsOn)] } : {},
+      ...outcome.parent ? { parent: outcome.parent } : {} }
     for (const triggerId of triggerIds) {
       const channel = this.repo.triggers.get(triggerId)?.channel
       if (channel && !ticket.channels.some(item => sameChannel(item, channel))) ticket.channels.push(channel)
     }
     ticket = this.options.prepareTicket?.(ticket, outcome) ?? ticket
-    const assignment = this.newAssignment(ticket)
+    // A part of a split request waits without an Assignment until the parts it builds on have ended.
+    const ready = this.dependenciesMet(ticket)
+    const assignment = ready ? this.newAssignment(ticket) : undefined
     this.repo.tickets.save(ticket)
     for (const triggerId of triggerIds) for (const ref of this.repo.triggers.get(triggerId)?.threads ?? []) this.subscribe(id, ref)
     if (outcome.acknowledgement && primary) this.replies.acknowledgeAccepted(id, primary, outcome.acknowledgement)
-    this.options.executor.start(this.require(id), assignment)
+    if (assignment) this.options.executor.start(this.require(id), assignment)
     this.emit('ticket.created', { ticketId: id, decisionId, strength: mandate.strength })
   }
   /**
@@ -360,6 +364,25 @@ export class Tickets extends EnginePart {
     this.letGo(ticketId, waiting, left)
     this.emit('ticket.ended', { ticketId, by, outcome, ...why })
     for (const assignment of stopping) this.options.executor.stop(ticket, assignment, reason ?? outcome)
+    this.releaseDependents(ticketId)
+  }
+  /** True when every Ticket this one names has ended; a dependency that no longer exists counts as ended. */
+  dependenciesMet(ticket: Ticket): boolean {
+    return (ticket.dependsOn ?? []).every(id => {
+      const dependency = this.repo.tickets.get(id)
+      return !dependency || !liveTicket(dependency)
+    })
+  }
+  /** Starts the parts of a split request whose last dependency ended with this Ticket. */
+  private releaseDependents(endedId: string): void {
+    for (const ticket of this.repo.tickets.open()) {
+      if (!ticket.dependsOn?.includes(endedId) || !this.dependenciesMet(ticket) || latestAssignment(ticket)) continue
+      const assignment = this.newAssignment(ticket)
+      ticket.updatedAt = this.now()
+      this.repo.tickets.save(ticket)
+      this.options.executor.start(ticket, assignment)
+      this.emit('ticket.released', { ticketId: ticket.id, after: endedId })
+    }
   }
   /**
    * Whether a ticket's work has not finished at a close at `at`: its worker took up a person's message the ticket decides and

@@ -127,7 +127,10 @@ export function ticketSummary(ticket: Ticket) {
     deliveryError: attribute(ticket.delivery?.error), sessionId: ticket.assignments.some(item => item.startedAt)
       ? workerSessionId(ticket.id) : '',
     directory: attribute(ticket.execution?.directory), summary: latestReport(ticket)?.summary ?? '', createdAt: ticket.createdAt,
-    updatedAt: ticket.updatedAt }
+    updatedAt: ticket.updatedAt,
+    // A part of a split request waits without an Assignment; naming what it waits for explains a queued row.
+    ...ticket.dependsOn?.length ? { dependsOn: ticket.dependsOn } : {},
+    ...ticket.parent ? { parent: ticket.parent } : {} }
 }
 export type TicketSummaryView = ReturnType<typeof ticketSummary>
 function threadUrl(store: Store, thread: Thread): string | undefined {
