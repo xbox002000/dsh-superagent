@@ -9,7 +9,7 @@ import { branchCiTrigger, ciTrigger, commentTrigger, CommentSchema, conflictTrig
   from './github-trigger.ts'
 import { githubLink, sendGithub } from './github-channel.ts'
 import type { GithubComment, PullRef } from './github-trigger.ts'
-import { observePull, pullsOf, readPull, type Pull } from './github-pull.ts'
+import { observePull, pullsOf, readPull, enforceAutoMerge, type Pull } from './github-pull.ts'
 import { health, sourceContext, type Health, type SourceContext } from './host.ts'
 import { KV } from '../kv.ts'
 import { cursorAt, pause, POLL_HORIZON_MS, pollThreads as pollEach } from './poll.ts'
@@ -25,7 +25,9 @@ const NotificationSchema = z.looseObject({
 const GithubConfigSchema = GithubAccountsSchema.extend({ pollSeconds: z.number().int().min(60).max(3600).default(60),
   failuresBeforeError: z.number().int().min(1).max(20).default(3),
   observeIssues: z.boolean().default(false), observePulls: z.boolean().default(false), observeComments: z.boolean().default(false),
-  observeCi: z.boolean().default(false) }).strict()
+  observeCi: z.boolean().default(false),
+  // Auto-merge is the Executor's request; these decide whether the Source lets it stand.
+  autoMerge: z.boolean().default(false), autoMergePaths: z.string().default(''), autoMergeMaxFiles: z.number().int().min(1).max(200).default(20) }).strict()
 export type GithubConfig = z.infer<typeof GithubConfigSchema>
 const OBSERVED = { issues: 'observeIssues', pulls: 'observePulls', comments: 'observeComments', ci: 'observeCi' } as const
 type Scope = keyof typeof OBSERVED
@@ -53,6 +55,12 @@ export const githubKind: SourceKind<GithubConfig> = {
       hint: { zh: '打开后，没有 @ 智能体的新 PR 也会收到，由策略的接收表决定是否成为候选。', en: 'New pull requests that do not mention the agent are received too, and the Policy\'s admission table decides whether they become candidates.' } },
     { key: 'observeComments', type: 'switch', label: { zh: '接收仓库里的评论', en: 'Receive comments in the repository' },
       hint: { zh: '打开后，Issue 和 PR 上没有 @ 智能体的评论和代码评论也会收到，由策略的接收表决定是否成为候选。', en: 'Comments and review comments on Issues and PRs that do not mention the agent are received too, and the Policy\'s admission table decides whether they become candidates.' } },
+    { key: 'autoMerge', type: 'switch', label: { zh: '允许自动合并', en: 'Allow auto-merge' },
+      hint: { zh: '关掉时，执行器开的自动合并会被撤销。打开后仍要满足下面的路径清单与文件数上限，系统才会让它留下——执行器只能「请求」自动合并，留下与否由这里决定。', en: 'While off, any auto-merge an Executor enables is withdrawn. While on, it stands only if every changed file matches the path list and the change stays under the file limit: the Executor may request auto-merge, but this decides whether it stands.' } },
+    { key: 'autoMergePaths', type: 'text', advanced: true, label: { zh: '可自动合并的路径', en: 'Paths that may auto-merge' },
+      hint: { zh: '每行一个，或逗号分隔；支持 * 与 **，例如 docs/*、src/**、README.md。留空表示任何路径都不允许自动合并。', en: 'One per line, or comma separated; `*` and `**` are supported, such as docs/*, src/**, README.md. Empty allows no path to auto-merge.' } },
+    { key: 'autoMergeMaxFiles', type: 'number', advanced: true, min: 1, max: 200, label: { zh: '自动合并的文件数上限', en: 'Files an auto-merge may change' },
+      hint: { zh: '超过这个数量的改动，即使路径都符合也不允许自动合并。', en: 'A change touching more files than this may not auto-merge, even when every path is allowed.' } },
     { key: 'observeCi', type: 'switch', label: { zh: '接收默认分支的 CI', en: 'Receive the default branch\'s CI' },
       hint: { zh: '打开后，默认分支的 CI 失败和恢复会收到，由策略的接收表决定是否成为候选。', en: 'Failures of the default branch\'s CI, and its recovery, are received, and the Policy\'s admission table decides whether they become candidates.' } }],
   // What the Source observes across the repository it receives in full; elsewhere, only what addresses the agent.
@@ -410,6 +418,8 @@ export async function pollTicketPulls(ctx: SourceContext, signal?: AbortSignal, 
       if (pr.state !== 'closed' && !pr.merged) {
         await pollChecks(ctx, round, number, pr)
         await pollMergeable(ctx, round, number, pr)
+        const config = ctx.config<GithubConfig>(SOURCE)
+        if (config) await enforceAutoMerge(ctx, number, pr, config, round.signal)
       }
     } catch (error) { if (!stopped(ctx, round)) failed(ctx, round, number, error) }
   }
