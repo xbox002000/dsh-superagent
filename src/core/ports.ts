@@ -51,7 +51,9 @@ export type AssessmentOutcome =
      * The parts of one request that is too large for a single Ticket, created instead of `title`/`scope`. A part's
      * `dependsOn` indexes the parts before it, which become its Tickets' ids.
      */
-    parts?: { title: string; scope: string; note?: string; name?: string; dependsOn?: number[] }[] }
+    parts?: { title: string; scope: string; note?: string; name?: string; dependsOn?: number[] }[]
+    /** Every Ticket the split produced, recorded on each part so the group can be reported once. */
+    siblings?: string[] }
   | { kind: 'stop'; ticketId: string; reason: string | Reason; audit?: Record<string, unknown> }
 
 /** Semantic judgement. `request` queues the assessment, idempotently per `evalId`; the outcome returns through `Engine.decide`. */
@@ -100,6 +102,8 @@ export interface DomainEvents {
   'ticket.resumed': { ticketId: string; triggerId: string }
   /** A part of a split request started because the last Ticket it built on ended. */
   'ticket.released': { ticketId: string; after: string }
+  /** Every part of one split request has ended, so the main Session can report the group once instead of per part. */
+  'group.ended': { decisionId: string; parts: { id: string; title: string; outcome: TicketOutcome }[] }
   'ticket.ended': { ticketId: string; by: TicketEndBy; outcome: TicketOutcome; reason?: string }
   'assignment.started': { ticketId: string; assignmentId: string }
   'assignment.ended': { ticketId: string; assignmentId: string; reason: string }

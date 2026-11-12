@@ -312,6 +312,8 @@ export interface Ticket {
   dependsOn?: string[]
   /** The Ticket this one was split from, so the parts read as one piece of work. */
   parent?: string
+  /** Every Ticket of the split request this one belongs to, so the group can be reported once when all of them ended. */
+  siblings?: string[]
 }
 /**
  * A Thread a ticket follows, by its key: `own` when the ticket opened it, such as its own pull request, and when and how it

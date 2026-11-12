@@ -1049,6 +1049,22 @@ describe('automatic input', () => {
     h.engine.stopTicket(part('Part one').id)
     expect(part('Part two').assignments.length).toBe(1)
   })
+  it('reports a split request once, when its last part ended', () => {
+    const events: { type: string; data: Record<string, unknown> }[] = []
+    const h = harness({}, { emit: event => events.push(event) })
+    h.engine.receive(trigger('1', { threads: [{ source: 'chat', id: 't1' }] })); h.pump()
+    h.decide(h.requests.at(-1)!, { kind: 'accept', title: 'Whole request', scope: 'big', reason: 'requested',
+      parts: [{ title: 'Part one', scope: 'first half' }, { title: 'Part two', scope: 'second half', dependsOn: [0] }] })
+    h.settle()
+    const part = (title: string) => h.repo.tickets.open().find(ticket => ticket.title === title)!
+    h.engine.stopTicket(part('Part one').id)
+    // One part still open, so the group is not reported yet.
+    expect(events.filter(event => event.type === 'group.ended')).toHaveLength(0)
+    h.engine.stopTicket(part('Part two').id)
+    const group = events.filter(event => event.type === 'group.ended')
+    expect(group).toHaveLength(1)
+    expect((group[0]!.data.parts as unknown[]).length).toBe(2)
+  })
   it('launches a failed launch again for a person\'s message, but not for a Policy change', () => {
     const h = harness()
     h.engine.receive(trigger('1')); h.pump()

@@ -52,6 +52,12 @@ export function eventNotice(event: DomainEvent, ticket: (id: string) => Ticket |
     const ended = ticket(ticketId)
     return receiptNotice(ended ? { ticket_ended: brief(ended) } : { ticket_ended: ticketId, by, outcome, reason, at }, `Ticket ${ticketId} ended (${reason})`)
   }
+  if (event.type === 'group.ended') {
+    const { parts } = event.data
+    const lines = parts.map(part => `${part.title}: ${part.outcome}`)
+    return receiptNotice({ group_ended: lines, at },
+      `All ${parts.length} parts of one split request ended.\n${lines.join('\n')}\nReport the group to the person once, with what each part did.`)
+  }
   if (event.type === 'trigger.requeued') {
     const id = event.data.triggerId
     return receiptNotice({ trigger_requeued: id, read: `trigger/${id}`, at }, `Trigger ${id} queued for a fresh assessment`)

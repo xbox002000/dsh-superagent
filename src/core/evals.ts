@@ -321,7 +321,7 @@ export class Evals extends EnginePart {
     parts.forEach((part, index) => {
       const dependsOn = (part.dependsOn ?? []).flatMap(other => ids[other] ? [ids[other]!] : [])
       this.tickets.create(ids[index]!, decision.id, { ...mandate, scope: part.scope }, evaluation, { ...outcome, title: part.title,
-        scope: part.scope, ...part.note ? { note: part.note } : {}, ...part.name ? { name: part.name } : {},
+        scope: part.scope, siblings: ids, ...part.note ? { note: part.note } : {}, ...part.name ? { name: part.name } : {},
         ...dependsOn.length ? { dependsOn } : {}, ...index ? { parent: ids[0]! } : {} }, at)
     })
     return decision

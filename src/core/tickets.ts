@@ -43,7 +43,8 @@ export class Tickets extends EnginePart {
     let ticket: Ticket = { id, title: outcome.title, decisionId, mandate, channels: [], assignments: [], inputs: [], undelivered: [],
       createdAt: at, updatedAt: at, origin,
       ...outcome.dependsOn?.length ? { dependsOn: [...new Set(outcome.dependsOn)] } : {},
-      ...outcome.parent ? { parent: outcome.parent } : {} }
+      ...outcome.parent ? { parent: outcome.parent } : {},
+      ...outcome.siblings?.length ? { siblings: outcome.siblings } : {} }
     for (const triggerId of triggerIds) {
       const channel = this.repo.triggers.get(triggerId)?.channel
       if (channel && !ticket.channels.some(item => sameChannel(item, channel))) ticket.channels.push(channel)
@@ -365,6 +366,19 @@ export class Tickets extends EnginePart {
     this.emit('ticket.ended', { ticketId, by, outcome, ...why })
     for (const assignment of stopping) this.options.executor.stop(ticket, assignment, reason ?? outcome)
     this.releaseDependents(ticketId)
+    this.completeGroup(ticket)
+  }
+  /**
+   * Reports a split request whose every part has ended, so the main Session tells the person once rather than once per part.
+   * A part still open, or one that is not a part of a split, reports nothing.
+   */
+  private completeGroup(ticket: Ticket): void {
+    const siblings = ticket.siblings ?? []
+    if (siblings.length < 2) return
+    const parts = siblings.map(id => this.repo.tickets.get(id))
+    if (parts.some(part => !part || liveTicket(part))) return
+    this.emit('group.ended', { decisionId: ticket.decisionId,
+      parts: parts.map(part => ({ id: part!.id, title: part!.title, outcome: part!.ended!.outcome })) })
   }
   /** True when every Ticket this one names has ended; a dependency that no longer exists counts as ended. */
   dependenciesMet(ticket: Ticket): boolean {
