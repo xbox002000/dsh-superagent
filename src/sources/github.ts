@@ -462,8 +462,17 @@ async function pollMerged(ctx: SourceContext, round: Round): Promise<void> {
     }
     if (JSON.stringify(failures) === JSON.stringify(record.failures ?? [])) continue
     ctx.state.set(KV.github.merged(number), { ...record, failures })
-    ctx.threads.describe(`github:${number}`, { facts: { mergedCi: { label: { zh: '合併後 CI', en: 'CI after merge' },
-      value: { zh: '失敗', en: 'failed' }, problem: true } } })
+    // A branch that was already red is not this merge's doing: compare with the merge's first parent before asking for a revert.
+    const commit = await ctx.commands.withSignal(round.signal).api(z.looseObject({ parents: z.array(z.looseObject({ sha: z.string() })) }), `commits/${record.sha}`)
+    const base = commit.parents[0]?.sha
+    const baseSnapshot = base ? await pullChecks(ctx.commands.withSignal(round.signal), base, round.tally) : undefined
+    const known = !!baseSnapshot && ciCounts(baseSnapshot).total > 0
+    const before = baseSnapshot ? ciFailures(baseSnapshot) : []
+    const regression = known && JSON.stringify(before) !== JSON.stringify(failures)
+    const verdict = regression ? { zh: '失敗', en: 'failed' } : known ? { zh: '原本就失敗', en: 'already failing' } : { zh: '無法判定', en: 'unknown' }
+    ctx.threads.describe(`github:${number}`, { facts: { mergedCi: { label: { zh: '合併後 CI', en: 'CI after merge' }, value: verdict, problem: true } } })
+    // With no checks on the parent commit there is nothing to compare against, so report it and leave the decision to a person.
+    if (!regression) continue
     await ctx.receive(revertTrigger({ number, html_url: `https://github.com/${ctx.deployment.repository}/pull/${number}`,
       user: { login: ctx.deployment.github.login }, sha: record.sha },
     `The merge of PR #${number} (commit ${record.sha.slice(0, 7)}) fails the default branch's checks: ${failures.slice(0, 5).join(', ')}. `
