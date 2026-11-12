@@ -7,11 +7,10 @@ import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
+import { ABSOLUTE_PATH, probeInvocation } from './infra/platform.ts'
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
-// POSIX absolute path, Windows drive absolute path (`C:\…` / `C:/…`), or UNC path (`\\server\share`).
-const ABSOLUTE_PATH = /^(\/|[A-Za-z]:[\\/]|\\\\)/
 const absolute = (description: string) => s.string().pattern(ABSOLUTE_PATH).description(`${description} Absolute path.`)
 /** Plugin configuration of the dsh-superagent entry. Volatile fields apply without a restart because dsh-superagent reads them on each use; changing `stateDir` remounts the plugin. */
 export const Config = s.object({
@@ -75,12 +74,10 @@ export type Probe = (argv: string[]) => Promise<string>
 export function workerProbe(subprocess: SubprocessRuntime, stateDir: string, cwd: string, signal: AbortSignal): Probe {
   const path = withoutDirectory(process.env.PATH ?? '', workerBin(stateDir))
   const timeout = AbortSignal.any([signal, AbortSignal.timeout(60_000)])
-  // Windows has no `env` command, so hand PATH to the child through its environment instead of a prefix.
-  if (process.platform === 'win32') {
-    const env = Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined)) as Record<string, string>
-    return argv => runAsWorker(subprocess, argv, cwd, timeout, { ...env, PATH: path })
+  return argv => {
+    const { argv: command, env } = probeInvocation(argv, path)
+    return runAsWorker(subprocess, command, cwd, timeout, env)
   }
-  return argv => runAsWorker(subprocess, ['env', `PATH=${path}`, ...argv], cwd, timeout)
 }
 
 const GithubUser = z.object({ login: z.string().regex(/^[A-Za-z0-9-]+$/), id: z.number().int().positive() })
