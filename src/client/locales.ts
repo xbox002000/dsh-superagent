@@ -330,6 +330,8 @@ const TEXT = {
   directionEvidence: ['方向证据：{evidence}', 'Evidence: {evidence}'],
   maxWorkers: ['并行工单数', 'Concurrent Tickets'],
   maxWorkersHint: ['超过并发上限的工单排队等待。', 'Tickets beyond the limit wait in a queue.'],
+  maxRetries: ['失败自动重试次数', 'Retries after a failure'],
+  maxRetriesHint: ['工单报告 failed 时自动重试几次（同一 Session 续做）；0 表示直接等人。blocked 不重试，因为它在等人回答。', 'How many times a failed Ticket is retried on its own in the same Session; 0 leaves every failure to a person. A blocked Ticket is never retried, because it is waiting for an answer.'],
   'basis.sender': ['发起人', 'Sender'],
   'basis.addressed': ['点名方式', 'Addressed by'],
   'addressed.mention': ['@ 智能体', 'Mention'],

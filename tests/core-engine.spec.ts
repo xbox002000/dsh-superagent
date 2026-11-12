@@ -11,8 +11,9 @@ function trigger(id: string, overrides: Partial<Trigger> = {}): Trigger {
 interface Hooks {
   emit?: (event: { type: string; data: Record<string, unknown> }) => void
   prepareTicket?: EngineOptions['prepareTicket']
+  maxRetries?: () => number
 }
-function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket }: Hooks = {}) {
+function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket, maxRetries }: Hooks = {}) {
   const repo = new MemoryRepositories()
   const outbox: OutboundMessage[] = []
   const withdrawn: string[] = []
@@ -41,7 +42,7 @@ function harness(policyOverrides: Partial<Policy> = {}, { emit, prepareTicket }:
     withdraw: id => { withdrawn.push(id) },
   }
   const engine = new Engine({ repo, scope, policy: () => policy, assessor, executor, outbox: queued,
-    ...emit ? { emit } : {}, ...prepareTicket ? { prepareTicket } : {}, now: () => new Date(Date.UTC(2026, 8, 23, 0, 0, clock)).toISOString() })
+    ...maxRetries ? { maxRetries } : {}, ...emit ? { emit } : {}, ...prepareTicket ? { prepareTicket } : {}, now: () => new Date(Date.UTC(2026, 8, 23, 0, 0, clock)).toISOString() })
   /** Simulate the executor starting queued assignments (unless `launch` is false) and delivering pending ticket inputs. */
   function settle({ launch = true } = {}) {
     for (;;) {
@@ -994,6 +995,26 @@ describe('automatic input', () => {
     h.tick(1); h.engine.report(ticketId, { state: 'blocked', summary: 'needs access' })
     h.engine.retryTicket(ticketId)
     expect(waitsForPerson(ticket())).toBe(false)
+  })
+  it('retries a failed Assignment on its own until the retries run out, and leaves a blocked one to a person', () => {
+    const h = harness({}, { maxRetries: () => 1 })
+    accepted(h)
+    const id = h.repo.tickets.open()[0]!.id
+    const attempts = () => h.repo.tickets.get(id)!.assignments.length
+    expect(attempts()).toBe(1)
+    // The first failure uses the one retry, the second leaves the ticket for a person.
+    h.engine.report(id, { state: 'failed', summary: 'broke' })
+    expect(attempts()).toBe(2)
+    h.engine.report(id, { state: 'failed', summary: 'broke again' })
+    expect(attempts()).toBe(2)
+    expect(ticketStage(h.repo.tickets.get(id)!)).toEqual({ stage: 'person', action: 'failed' })
+    // A blocked report asks a person a question, so it is never retried even with retries left.
+    const generous = harness({}, { maxRetries: () => 3 })
+    accepted(generous)
+    const blockedId = generous.repo.tickets.open()[0]!.id
+    generous.engine.report(blockedId, { state: 'blocked', summary: 'needs a decision' })
+    expect(generous.repo.tickets.get(blockedId)!.assignments.length).toBe(1)
+    expect(ticketStage(generous.repo.tickets.get(blockedId)!)).toEqual({ stage: 'person', action: 'blocked' })
   })
   it('launches a failed launch again for a person\'s message, but not for a Policy change', () => {
     const h = harness()

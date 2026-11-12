@@ -13,6 +13,8 @@ export interface EngineOptions {
   executor: Executor
   outbox: Outbox
   prepareTicket?: (ticket: Ticket, outcome: Extract<AssessmentOutcome, { kind: 'accept' }>) => Ticket
+  /** How many times a failed Assignment is retried on its own before the ticket waits for a person; 0 retries none. */
+  maxRetries?: () => number
   now?: () => string
   emit?: (event: DomainEvent) => void
 }

@@ -92,6 +92,8 @@ const CommandNameSchema = z.string().regex(/^[A-Za-z0-9._-]+$/).refine(name => n
 export const ExecutorConfigSchema = z.object({
   model: RoleModelSchema.nullable().default(null),
   maxWorkers: z.number().int().min(LIMITS.maxWorkers.min).max(LIMITS.maxWorkers.max).default(3),
+  // A failed Assignment is retried on its own this many times before the ticket waits for a person; 0 retries none.
+  maxRetries: z.number().int().min(0).max(5).default(0),
   // An absolute path on this platform (see `infra/platform.ts`); empty means `<stateDir>/work`.
   directory: z.string().trim().refine(path => path === '' || isAbsolutePath(path), 'An absolute path, or empty for <stateDir>/work').default(''),
   prepare: z.string().max(LIMITS.prepareCommand).default(''),

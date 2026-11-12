@@ -236,7 +236,32 @@ export class Engine {
    * @throws UserError for an unknown or ended ticket, an ended assignment, a question that comes with a ready result or an
    * answer, or a question or answer that names a message that is not a person's or did not reach the ticket.
    */
-  report(ticketId: string, report: WorkerReport): Ticket { return this.repo.atomic(() => this.assignments.report(ticketId, report)) }
+  report(ticketId: string, report: WorkerReport): Ticket {
+    const ticket = this.repo.atomic(() => this.assignments.report(ticketId, report))
+    this.retryFailed(ticket, report)
+    return ticket
+  }
+  /** Retries used per Ticket in this process; a restart forgets them, which at worst gives a ticket one more attempt. */
+  private readonly retries = new Map<string, number>()
+  /**
+   * A `failed` report is retried on its own while `maxRetries` allows it: the worker keeps its Session, so the next attempt
+   * starts from what already went wrong instead of repeating it blind. A `blocked` report asks a person something and is left
+   * alone, and once the retries are used up the ticket waits for a person exactly as before.
+   *
+   * The count lives here rather than on the Ticket because a failed report can arrive after its retry created the next
+   * Assignment, so the number of Assignments is not the number of failures.
+   */
+  private retryFailed(ticket: Ticket, report: WorkerReport): void {
+    if (report.state === 'ready' || report.state === 'waiting') { this.retries.delete(ticket.id); return }
+    if (report.state !== 'failed') return
+    const max = this.options.maxRetries?.() ?? 0
+    if (max <= 0) return
+    const used = this.retries.get(ticket.id) ?? 0
+    if (used >= max) return
+    this.retries.set(ticket.id, used + 1)
+    try { this.retryTicket(ticket.id) }
+    catch { this.retries.set(ticket.id, used) /* The ticket ended or is no longer retryable. */ }
+  }
   /**
    * Handles an assignment that was running when the host stopped: restarts it with a recovery note unless its latest report is
    * `waiting`, `ready`, `blocked`, or `failed` and no Input reached its worker after that report, in which case it keeps its
