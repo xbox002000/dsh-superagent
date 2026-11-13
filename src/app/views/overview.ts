@@ -45,7 +45,14 @@ function calibration(store: Store, limit = 200) {
   })
   const laterWorked = ignored.filter(decision => store.decisions.byThread(decision.threadKey)
     .some(other => other.id !== decision.id && other.kind === 'accept' && other.at > decision.at))
-  return { accepted: accepted.length, acceptedTurnedDown: turnedDown.length, ignored: ignored.length, ignoredLaterWorked: laterWorked.length }
+  // The cases behind the counts, newest first, so an operator can read what went wrong and open the thread.
+  const cases = [
+    ...turnedDown.map(decision => ({ decision, verdict: 'accept-turned-down' as const })),
+    ...laterWorked.map(decision => ({ decision, verdict: 'ignore-later-worked' as const })),
+  ].sort((left, right) => right.decision.at.localeCompare(left.decision.at)).slice(0, 10)
+  return { accepted: accepted.length, acceptedTurnedDown: turnedDown.length, ignored: ignored.length, ignoredLaterWorked: laterWorked.length,
+    recent: cases.map(({ decision, verdict }) => ({ at: decision.at, threadKey: decision.threadKey, verdict,
+      reason: reasonText(decision.reason), ...decision.ticketId ? { ticketId: decision.ticketId } : {} })) }
 }
 /**
  * Builds the operator overview: active system problems, tickets awaiting human action, executor load, and 24-hour trigger flow.

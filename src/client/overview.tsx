@@ -91,6 +91,26 @@ export function OverviewPage() {
         {data.flow.dropped > 0 && stat(t('flowDroppedLabel'), data.flow.dropped, { page: 'source' })}
       </div>
     </Section>
+    <Section title={t('calibration')} count={data.calibration.recent.length || undefined}>
+      {/* The two numbers that say the rules disagree with the operator: an accept a person then turned down, and an ignore
+          the thread went on to have work anyway. The cases below them open the thread they came from. */}
+      <div className="dt-stats">
+        {stat(t('calibrationAccepted'), data.calibration.accepted)}
+        {stat(t('calibrationTurnedDown'), data.calibration.acceptedTurnedDown)}
+        {stat(t('calibrationIgnored'), data.calibration.ignored)}
+        {stat(t('calibrationLaterWorked'), data.calibration.ignoredLaterWorked)}
+      </div>
+      {data.calibration.recent.length ? <ul className="dt-list">
+        {data.calibration.recent.map(item => <li key={`${item.verdict}:${item.threadKey}:${item.at}`} className="dt-row dt-link">
+          <button type="button" className="dt-open dt-open-wrap"
+            onClick={() => navigate({ page: 'trigger', id: item.threadKey })}>
+            {t(item.verdict === 'accept-turned-down' ? 'calibrationAcceptTurnedDown' : 'calibrationIgnoreLaterWorked')}
+          </button>
+          <span className="dt-row-meta dt-mono">{item.threadKey}</span>
+          <p className="dt-clamp">{item.reason}</p>
+        </li>)}
+      </ul> : <Hint>{t('calibrationNone')}</Hint>}
+    </Section>
     <Section title={t('term.executor')} action={more({ page: 'execution' })}>
       {/* Pauses surface in `problems` above, so Executor counts render the same in both states; while setup waits, nothing runs. */}
       {setup?.problem ? <Hint>{t('executorWaitingSetup')}</Hint> : <div className="dt-stats">

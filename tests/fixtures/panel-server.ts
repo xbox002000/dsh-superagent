@@ -199,7 +199,9 @@ const overviewView = (): ApiResponse<'GET overview'> => {
     flow: { received: 12, filtered: 2, triggers: 10, judged: 5, accepted: 1, evaluating: 0,
       dropped: server.dropped.filter(item => item.dropped.at >= dayAgo()).length },
     policyVersion: 'abcdef1234567890',
-    calibration: { accepted: 3, acceptedTurnedDown: 1, ignored: 4, ignoredLaterWorked: 1 },
+    calibration: { accepted: 3, acceptedTurnedDown: 1, ignored: 4, ignoredLaterWorked: 1,
+      recent: [{ at: '2026-09-23T00:00:00Z', threadKey: 'feishu:oc_team', verdict: 'ignore-later-worked' as const,
+        reason: 'no rule matched' }] },
   }
 }
 export const acceptDecision = (): NonNullable<TicketPageView['decision']> => ({ id: 'd1', kind: 'accept', outcome: 'accept',
