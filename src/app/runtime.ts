@@ -41,6 +41,7 @@ import { Setup } from './setup.ts'
 import { feishuSettings } from '../sources/feishu.ts'
 import { health, type Health, type SourceContext, type SourceHost } from '../sources/host.ts'
 import { Sessions } from './sessions.ts'
+import { Journal } from './journal.ts'
 import { Settings } from './settings.ts'
 import { sourceContextOf, type SourceContextDeps } from './source-context.ts'
 import type { ResourceHost } from './resources.ts'
@@ -144,9 +145,12 @@ export class Runtime extends Service implements SourceHost {
       const outbox = this.outbox = new Outbox({ store, effects, sources, commands, paused: () => this.paused() })
       const { assessor, executor } = this
       const policy = () => settingsPolicy(store.settings(), sources)
+      const journal = new Journal(join(machine.stateDir, 'events.jsonl'))
       const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor,
         maxRetries: () => store.settings().executor.maxRetries,
         outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
+          // Recorded before anything reacts to it, so the journal is the order the domain saw.
+          journal.write(event)
           // Notify the main Session only about domain events it did not initiate itself.
           const notice = this.quiet ? undefined : eventNotice(event, id => store.tickets.get(id))
           if (notice) sessions.notify(...notice)

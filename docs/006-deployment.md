@@ -113,6 +113,15 @@ On Windows the same verbs are `scripts/superagent.ps1`: `start`, `stop`, `restar
 
 To keep the service running without a person watching, `scripts/watchdog.ps1` checks it and restarts it when it is down. A service a person stopped stays stopped: the marker `stop` writes is respected. Each run appends one line to `<stateDir>/watchdog.log`.
 
+Every domain event is also appended to `<stateDir>/events.jsonl`, one JSON object per line, so a week of running can be read back after the fact: a Ticket released, a split reported, a Ticket ended with the reason it gave. The file rotates by size into `events.jsonl.1`, `.2` and `.3`, so a busy installation does not grow without a bound. A write that fails is dropped rather than stopping the work it records.
+
+```powershell
+# What was released yesterday, and why Tickets ended
+Get-Content "$env:USERPROFILE\.dsh\state\superagent\events.jsonl" |
+  ConvertFrom-Json | Where-Object { $_.type -in 'ticket.released', 'ticket.ended' } |
+  Where-Object { $_.at -gt (Get-Date).AddDays(-1).ToUniversalTime().ToString('o') } |
+  Format-Table at, type, @{ n = 'ticket'; e = { $_.data.ticketId } }, @{ n = 'outcome'; e = { $_.data.outcome } }
+```
 ```powershell
 .\scripts\watchdog.ps1 -Register     # a scheduled task every five minutes
 .\scripts\watchdog.ps1               # one check now

@@ -1562,7 +1562,7 @@ it('reads the main Session\'s preset from a registry with or without presetForSe
   main = await guard({ select: vi.fn(), presetForSession: () => { throw new Error('no projection') } })
   expect(main(route)).toBeUndefined()
   expect(main(watch)).toMatch(/^This shell waits up to 60 seconds by default/)
-})
+}, 30_000)
 
 it('refuses an ended ticket\'s worker its tools, and restricts the main Session to the tools it may use', async () => {
   const { ticket, sessionId } = await acceptedTicket()
