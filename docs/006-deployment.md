@@ -104,6 +104,21 @@ scripts/dsh-superagent start
 scripts/dsh-superagent status
 ```
 
+On Windows the same verbs are `scripts/superagent.ps1`: `start`, `stop`, `restart`, `status`, and `url`, which prints the panel address with the token the host logged. It keeps the exit codes below, clears the state lock a killed host leaves behind, and carries `GH_CONFIG_DIR` so the agent's account is the one the service uses. It also refuses to start while another instance of the same profile runs, which is what `status` reports as a duplicated service.
+
+```powershell
+.\scripts\superagent.ps1 start
+.\scripts\superagent.ps1 status; $LASTEXITCODE
+```
+
+To keep the service running without a person watching, `scripts/watchdog.ps1` checks it and restarts it when it is down. A service a person stopped stays stopped: the marker `stop` writes is respected. Each run appends one line to `<stateDir>/watchdog.log`.
+
+```powershell
+.\scripts\watchdog.ps1 -Register     # a scheduled task every five minutes
+.\scripts\watchdog.ps1               # one check now
+.\scripts\watchdog.ps1 -Unregister
+```
+
 `start` runs `dsh --profile superagent` in tmux session `dsh-superagent`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
 
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.
