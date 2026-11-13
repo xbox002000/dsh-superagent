@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
+import { WINDOWS } from '../infra/platform.ts'
 import { threadKey, type Thread, type Trigger } from '../core/index.ts'
 import { feishuChatLink } from './feishu-channel.ts'
 import type { FeishuBot } from '../deployment.ts'
@@ -68,7 +69,12 @@ async function watch(ctx: SourceContext, signal: AbortSignal): Promise<void> {
 export const consumerRetry = (previous: number | undefined, ranMs: number): number =>
   previous === undefined || ranMs >= 60_000 ? 1000 : Math.min(previous * 2, 60_000)
 async function consume(ctx: SourceContext, signal: AbortSignal): Promise<void> {
-  const child = spawn(bot(ctx).cli, ['event', 'consume', 'im.message.receive_v1', '--as', 'bot'],
+  // A .cmd cannot be spawned directly on Windows, so the shell runs it there; POSIX runs the CLI as it is.
+  const command = bot(ctx).cli
+  const [program, args] = WINDOWS
+    ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', command, 'event', 'consume', 'im.message.receive_v1', '--as', 'bot']]
+    : [command, ['event', 'consume', 'im.message.receive_v1', '--as', 'bot']]
+  const child = spawn(program, args,
     { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
       LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } })
   const stdout = createInterface({ input: child.stdout }); const stderr = createInterface({ input: child.stderr })

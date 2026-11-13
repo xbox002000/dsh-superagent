@@ -7,7 +7,7 @@ import s from '@deepseek-ai/schemastery'
 import { z } from 'zod'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import { runAsWorker, sameDirectory, withoutDirectory, workerBin } from './infra/environment.ts'
-import { ABSOLUTE_PATH, probeInvocation } from './infra/platform.ts'
+import { ABSOLUTE_PATH, WINDOWS, probeInvocation } from './infra/platform.ts'
 import { SetupError } from './setup.ts'
 
 const reason = (error: unknown): string => error instanceof Error ? error.message : String(error)
@@ -129,7 +129,11 @@ export async function resolveFeishuBot(machine: Machine, feishu: unknown, probe:
   const fail = (error: unknown): never => { throw error instanceof SetupError ? error : new SetupError('feishuCliFailed', { output: reason(error) }) }
   let cli = ''
   try { cli = executable(name, path, workerBin(machine.stateDir)) } catch (error) { fail(error) }
-  const run = (...args: string[]): Promise<string> => probe(['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1', cli, ...args]).catch(fail)
+  // The notifier switches go through `env` on POSIX, which does not exist on Windows: there the CLI is run directly, and the
+  // wrapper the Source points at sets whatever it needs. Without this the Feishu check failed with `spawn env ENOENT` on every
+  // Windows machine, whatever the bot's configuration.
+  const quiet = WINDOWS ? [] : ['env', 'LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1', 'LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1']
+  const run = (...args: string[]): Promise<string> => probe([...quiet, cli, ...args]).catch(fail)
   const text = await run('auth', 'status')
   const status = parsed(AuthStatus, text.slice(text.indexOf('{')))
   if (!status) return fail(new SetupError('feishuNoApp'))
