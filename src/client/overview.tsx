@@ -6,7 +6,7 @@ import { useAction, usePanel, usePanelData } from './provider.tsx'
 import { setupPage, settingsRoute, type Route } from './route.ts'
 import { TicketLine } from './rows.tsx'
 import { healthText, localized, reasonLabel, valueLabel, readableMarkers } from './text.ts'
-import { CheckSetupButton, ConfirmButton, Hint, LoadState, Section, SetupMessage } from './widgets.tsx'
+import { CheckSetupButton, ConfirmButton, Hint, LoadState, Section, SetupMessage, When } from './widgets.tsx'
 
 function ProblemLine({ problem, onChanged }: { problem: Problem; onChanged: () => Promise<void> }) {
   const { t, call, navigate } = usePanel()
@@ -118,6 +118,17 @@ export function OverviewPage() {
         {stat(t('queuedLabel'), data.executor.queued)}
         {stat(t('idleLabel'), data.executor.idle)}
       </div>}
+    </Section>
+    <Section title={t('activity')} count={data.activity.length || undefined}>
+      {/* What the runtime just did, newest first. The journal file holds the durable copy; this is the part a person watches. */}
+      {data.activity.length ? <ul className="dt-list">{data.activity.map((item, index) => <li key={`${item.at}:${index}`}
+        className="dt-row">
+        <div className="dt-row-main">
+          <span className="dt-row-title">{t(item.type as never)}</span>
+          {item.subject && <span className="dt-row-meta dt-mono">{item.subject.slice(0, 12)}</span>}
+        </div>
+        <When at={item.at} />
+      </li>)}</ul> : <Hint>{t('activityNone')}</Hint>}
     </Section>
   </>
 }

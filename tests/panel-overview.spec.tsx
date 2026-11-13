@@ -11,7 +11,7 @@ it('leads the overview with the pending Tickets, then problems, the last day and
   expect(tab(zh['tab.overview']).getAttribute('aria-selected')).toBe('true')
   expect(all('[role="tab"]').map(tab => tab.textContent)).toEqual(['概览', '来源', '触发', '评估', '执行', '设置'])
   expect(all('.dt-section-title').map(title => title.textContent)).toEqual(['待处理工单2', '系统问题2', '过去 24 小时详情 ›',
-    '判断校准1', '执行器详情 ›'])
+    '判断校准1', '执行器详情 ›', '最近活动2'])
   expect(all('.dt-cards .dt-ticket-stage').map(item => item.textContent)).toEqual(['待回答', '待处理失败'])
   expect(all('.dt-cards .dt-att-what').map(item => item.textContent)).toEqual(['飞书 来源异常', '评估未完成：这个文案好奇怪'])
   // Actions sit below the title and Threads, apart from the stage, each with its icon.
@@ -140,7 +140,7 @@ it('shows what the rules got wrong, and opens the thread a case came from', asyn
 it('shows the overview in English', async () => {
   await mount(en)
   expect(all('.dt-section-title').map(title => title.textContent)).toEqual([`${en.pendingTickets}2`, `${en.problems}2`,
-    `${en.lastDay}${en.details}`, `${en.calibration}1`, `${en['term.executor']}${en.details}`])
+    `${en.lastDay}${en.details}`, `${en.calibration}1`, `${en['term.executor']}${en.details}`, `${en.activity}2`])
   expect(all('.dt-cards .dt-ticket-stage').map(item => item.textContent)).toEqual([en['stage.answer'], en['stage.failed']])
   expect(all('.dt-stat-label').map(label => label.textContent)).toEqual([en.flowReceivedLabel, en.flowFilteredLabel, en.flowJudgedLabel,
     en.flowAcceptedLabel, en.calibrationAccepted, en.calibrationTurnedDown, en.calibrationIgnored, en.calibrationLaterWorked,

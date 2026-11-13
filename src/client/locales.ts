@@ -144,6 +144,8 @@ const TEXT = {
   calibrationAcceptTurnedDown: ['接了，但人关掉了它', 'Accepted, and a person closed it'],
   calibrationIgnoreLaterWorked: ['拒了，但这个 thread 后来有工单', 'Ignored, and the thread later had work'],
   calibrationNone: ['还没有可对照的记录', 'No decision to compare against yet'],
+  activity: ['最近活动', 'Recent activity'],
+  activityNone: ['还没有事件', 'No event yet'],
   idleLabel: ['等待新触发', 'Waiting for a Trigger'],
   problemNoAllowed: ['没有人能发起工作：各来源上的名单都为空，任何请求都不会成为工单', 'No one may originate work: the lists on every Source are empty, so no request can become a Ticket'],
   actionAddAllowed: ['去添加', 'Add senders'],

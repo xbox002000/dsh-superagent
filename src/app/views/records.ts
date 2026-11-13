@@ -1,7 +1,7 @@
 /** Shared view projections for triggers, tickets, threads, decisions, and channel links. */
 import { z } from 'zod'
 import { canRetry, followupOwners, latestReport, liveTicket, settled, threadKey, ticketStage, type ActorRef, type ChannelRef, type Decision,
-  type DecisionKind, type Thread, type ThreadFacts, type Ticket, type TicketStage, type Trigger } from '../../core/index.ts'
+  type DecisionKind, type DomainEvent, type Thread, type ThreadFacts, type Ticket, type TicketStage, type Trigger } from '../../core/index.ts'
 import { allowedSender, listedBot } from '../../policy.ts'
 import type { ChannelLink, Localized } from '../../sources/kind.ts'
 import type { SourceRegistry } from '../../sources/registry.ts'
@@ -10,7 +10,11 @@ import type { Store } from '../store.ts'
 import { attribute, markdown, plain, preview, readable } from './text.ts'
 
 export type LinkTarget = (channel: ChannelRef) => ChannelLink
-export interface ViewHost { store: Store; sources: SourceRegistry; links: LinkTarget }
+export interface ViewHost {
+  store: Store; sources: SourceRegistry; links: LinkTarget
+  /** The events the runtime still holds in memory, newest last; a view that shows them does not read the journal file. */
+  journal?: () => readonly DomainEvent[]
+}
 export const page = <T>(items: T[], offset: number, limit: number) => ({ items: items.slice(offset, offset + limit), total: items.length, next_offset: offset + limit < items.length ? offset + limit : null })
 const DAY = 86_400_000
 export const dayAgo = () => new Date(Date.now() - DAY).toISOString()

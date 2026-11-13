@@ -11,7 +11,7 @@ import { PromptConflict, SKILL_NAME, SKILL_PREFIX, TEAM_SECTIONS, builtInBase, b
 import { policyVersion } from '../policy.ts'
 import { SettingsConflict, type Settings } from './settings.ts'
 import { SetupError, type SetupProblem } from '../setup.ts'
-import { UserError, type EngineForPeople, type Ticket } from '../core/index.ts'
+import { UserError, type DomainEvent, type EngineForPeople, type Ticket } from '../core/index.ts'
 import type { Deployment, Machine } from '../deployment.ts'
 import type { DshExecutor } from '../executor/dsh.ts'
 import type { Health } from '../sources/host.ts'
@@ -30,6 +30,8 @@ import { executorLoad, ticketDetail, ticketList } from './views/tickets.ts'
 
 export interface HttpHost {
   readonly store: Store
+  /** The last domain events the runtime holds, newest first, for the overview's activity list. */
+  readonly recentEvents: () => readonly DomainEvent[]
   /** Feishu message links resolved since startup, used by search to match AppLink URLs. */
   readonly sourceLinks: Pick<TextCache, 'entries'>
   readonly sources: SourceRegistry
@@ -108,7 +110,8 @@ export function stateView(runtime: HttpHost) {
     maxWorkers: settings.executor.maxWorkers },
     masterId: runtime.masterId, paused: settings.paused, health: runtime.health }
 }
-const views = (runtime: HttpHost): ViewHost => ({ store: runtime.store, sources: runtime.sources, links: runtime.links() })
+const views = (runtime: HttpHost): ViewHost => ({ store: runtime.store, sources: runtime.sources, links: runtime.links(),
+  journal: () => runtime.recentEvents() })
 const setupState = (runtime: HttpHost): SetupState => ({ deployment: runtime.configured() ? runtime.deployment : undefined,
   problem: runtime.setupProblem, feishuProblem: runtime.feishuProblem })
 export type StateView = ReturnType<typeof stateView>

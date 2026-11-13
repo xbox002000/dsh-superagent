@@ -202,6 +202,8 @@ const overviewView = (): ApiResponse<'GET overview'> => {
     calibration: { accepted: 3, acceptedTurnedDown: 1, ignored: 4, ignoredLaterWorked: 1,
       recent: [{ at: '2026-09-23T00:00:00Z', threadKey: 'feishu:oc_team', verdict: 'ignore-later-worked' as const,
         reason: 'no rule matched' }] },
+    activity: [{ at: '2026-09-23T00:00:00Z', type: 'ticket.created', subject: 't1' },
+      { at: '2026-09-22T23:00:00Z', type: 'ticket.released', subject: 't2' }],
   }
 }
 export const acceptDecision = (): NonNullable<TicketPageView['decision']> => ({ id: 'd1', kind: 'accept', outcome: 'accept',

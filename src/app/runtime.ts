@@ -13,7 +13,7 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { lockSync } from 'proper-lockfile'
-import { Engine, key, reasonText, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
+import { Engine, key, reasonText, type DomainEvent, type EngineForSettings, type ReceiveResult, type Ticket, type Trigger } from '../core/index.ts'
 import { allowedSender, settingsPolicy } from '../policy.ts'
 import { SourceRegistry } from '../sources/registry.ts'
 import { Commands } from '../infra/commands.ts'
@@ -82,6 +82,9 @@ export class Runtime extends Service implements SourceHost {
   readonly passes: Passes
   readonly ready: Promise<void>
   private readonly board = new HealthBoard()
+  /** The last hundred domain events, newest last, for the panel's activity list; the journal file is the durable copy. */
+  private readonly recent: DomainEvent[] = []
+  readonly recentEvents = (): readonly DomainEvent[] => this.recent.slice().reverse()
   private readonly runtimeHealth = this.board.claim('runtime', { state: 'starting', detail: '' })
   readonly masterId: string
   private readonly sourceLinks = new TextCache(200_000)
@@ -146,11 +149,16 @@ export class Runtime extends Service implements SourceHost {
       const { assessor, executor } = this
       const policy = () => settingsPolicy(store.settings(), sources)
       const journal = new Journal(join(machine.stateDir, 'events.jsonl'))
+      // Seed the panel's list from the journal, so a restart does not make the last day look empty.
+      this.recent.push(...journal.read(100))
       const engine = this.engine = new Engine({ repo: store, scope: sources, policy, assessor, executor,
         maxRetries: () => store.settings().executor.maxRetries,
         outbox, prepareTicket: (ticket, outcome) => executor.prepare(ticket, outcome), emit: event => {
           // Recorded before anything reacts to it, so the journal is the order the domain saw.
           journal.write(event)
+          // The panel shows the last few without reading the file; the journal is the durable copy.
+          this.recent.push(event)
+          if (this.recent.length > 100) this.recent.shift()
           // Notify the main Session only about domain events it did not initiate itself.
           const notice = this.quiet ? undefined : eventNotice(event, id => store.tickets.get(id))
           if (notice) sessions.notify(...notice)
@@ -253,7 +261,7 @@ export class Runtime extends Service implements SourceHost {
   private httpHost(): HttpHost {
     const runtime = this
     const { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks, setup, passes } = this
-    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, sourceLinks,
+    return { store, sources, prompts, sessions, settings, engine, executor, health, machine, masterId, ready, recentEvents: runtime.recentEvents, sourceLinks,
       get deployment() { return setup.deployment },
       get setupProblem() { return setup.problem }, get feishuProblem() { return setup.feishuProblem },
       configured: () => setup.configured(), links: () => runtime.links(), ticketEnvironment: ticket => runtime.ticketEnvironment(ticket),

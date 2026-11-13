@@ -99,6 +99,13 @@ export function overview(host: ViewHost, health: HealthMap, policyVersionValue: 
       evaluating: evaluating.length, dropped: store.read.droppedSince(since) },
     policyVersion: policyVersionValue,
     calibration: calibration(store),
+    // What just happened, newest first: the journal holds the durable copy, this is the part a person watches.
+    activity: (host.journal?.() ?? []).slice(0, 12).map(event => {
+      const data = event.data as Record<string, unknown>
+      const subject = [data.ticketId, data.triggerId, data.kind, data.threadKey, data.decisionId]
+        .find(value => typeof value === 'string') as string | undefined
+      return { at: event.at, type: event.type as string, ...subject ? { subject } : {} }
+    }),
   }
 }
 export type OverviewView = ReturnType<typeof overview>

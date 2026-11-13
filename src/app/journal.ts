@@ -5,7 +5,7 @@
  * The file rotates by size rather than by day: a quiet installation should not accumulate empty files, and a busy one should
  * not grow without a bound. A write that fails never stops the work it was recording.
  */
-import { appendFileSync, existsSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, renameSync, statSync } from 'node:fs'
 import type { DomainEvent } from '../core/index.ts'
 
 /** Appends every domain event to a JSON lines file beside the state, rotating it by size. */
@@ -18,6 +18,16 @@ export class Journal {
       this.rotate()
       appendFileSync(this.file, `${JSON.stringify(event)}\n`, 'utf8')
     } catch { /* The disk is full or the file is locked; the work goes on without a record of this event. */ }
+  }
+
+  /** The last `limit` events in the file, oldest first; a line that does not parse is skipped rather than fatal. */
+  read(limit = 200): DomainEvent[] {
+    try {
+      const lines = readFileSync(this.file, 'utf8').split('\n').filter(Boolean)
+      return lines.slice(-limit).flatMap(line => {
+        try { return [JSON.parse(line) as DomainEvent] } catch { return [] }
+      })
+    } catch { return [] }
   }
 
   /** Renames the file to `.1` once it passes `limit`, shifting the older ones, so `keep` files cover the recent past. */

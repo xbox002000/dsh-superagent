@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -26,6 +26,17 @@ it('rotates by size, keeps the recent past, and never loses the newest event', (
   for (let index = 0; index < 12; index += 1) journal.write(created(`t${index}`))
   expect(readdirSync(dir).sort()).toEqual(['events.jsonl', 'events.jsonl.1', 'events.jsonl.2'])
   expect(readFileSync(file, 'utf8')).toContain('t11')
+})
+
+it('reads the last events back, skipping a line that does not parse', () => {
+  const file = join(dir, 'events.jsonl')
+  const journal = new Journal(file)
+  journal.write(created('t1'))
+  appendFileSync(file, 'not json\n')
+  journal.write(created('t2'))
+  expect(journal.read().map(event => event.type)).toEqual(['ticket.created', 'ticket.created'])
+  expect(journal.read(1)).toHaveLength(1)
+  expect(new Journal(join(dir, 'absent.jsonl')).read()).toEqual([])
 })
 
 it('does not throw when the file cannot be written, so the work it records goes on', () => {
