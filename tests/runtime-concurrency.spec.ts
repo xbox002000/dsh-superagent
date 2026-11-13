@@ -9,6 +9,10 @@ import { Commands } from '../src/infra/commands.ts'
 import { deferred, waitUntil } from './fixtures/async.ts'
 import { CHAT, MEMBER, feishu, startRuntime, type Host } from './fixtures/host.ts'
 
+// Each test starts a whole runtime and waits on real timers; on a CI runner that is several times slower than a workstation,
+// and the default five seconds is not enough for the slowest of them.
+vi.setConfig({ testTimeout: 30_000 })
+
 let h: Host
 beforeEach(async () => { h = await startRuntime() })
 afterEach(async () => { await h.stop() })
