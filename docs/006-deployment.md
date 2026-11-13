@@ -168,6 +168,22 @@ $env:GH_CONFIG_DIR="$env:USERPROFILE\.config\gh-agent"; gh api -X PATCH user/rep
 
 Then set that profile's GitHub Source to the repository from its own panel at `127.0.0.1:3083`.
 
+### Turning on the Feishu entry point
+
+The Feishu Source is in the checkout and does nothing until three things exist, in this order. The setup check names whichever is missing, so it is worth reading `state` after each step.
+
+1. **An app with a bot.** In the Feishu or Lark developer console, create a self-built app, enable its bot capability, and grant the message and chat permissions the Source reads. Note the `app_id` and `app_secret`: they are what the CLI authenticates with, and nobody else can create them for you.
+2. **A bot-only CLI configuration.** The Source calls `lark-cli`, and the identity it may act as is the one that CLI is configured with:
+
+   ```sh
+   LARKSUITE_CLI_CONFIG_DIR="$HOME/.lark-cli-dsh-superagent" lark-cli config init --app-id <cli_…> --app-secret <…> --mode bot
+   ```
+
+   Keep it separate from any personal configuration: `--mode bot` is what stops a user identity from being used by accident, and the setup check refuses a CLI that allows one.
+3. **A wrapper on the agent's PATH.** A short script that exports `LARKSUITE_CLI_CONFIG_DIR` and `exec`s `lark-cli`, named in the Source's `cli` field. The Source and its workers then act as the bot, never as you.
+
+The bot must also be added to each chat it should listen to; a chat it is not in is reported as `feishuBotNotMember` with the chat to add it to. Until all of this exists the GitHub entry point works on its own.
+
 `start` runs `dsh --profile superagent` in tmux session `dsh-superagent`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
 
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.
