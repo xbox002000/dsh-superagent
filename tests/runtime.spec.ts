@@ -7,6 +7,10 @@ import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { posix } from './support/capabilities.ts'
 import { shimFile } from '../src/infra/platform.ts'
+
+// Most of these start a whole runtime and wait on real timers. Five seconds is enough on a workstation and not on a CI runner,
+// where several of them timed out at once; the suite asks for the same thirty seconds the other runtime suites use.
+vi.setConfig({ testTimeout: 30_000 })
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Runtime } from '../src/app/runtime.ts'
