@@ -170,6 +170,9 @@ export function TicketPage({ id }: { id: string }) {
   const undelivered = data.inputs.filter(input => !input.delivered)
   const failedText = /^(?:\w+Error|Error)\b[:：]/.test(data.summary)
   const failed = data.stage === 'person' && data.action === 'failed'
+  // A Ticket whose work stopped is the one place the next click is least obvious, so its actions live in the banner that says
+  // why it stopped rather than in the page head.
+  const stuck = data.actions.retry && !!data.summary
   const opening = data.threads.find(thread => thread.url)
   const ended = data.ended && (() => {
     const outcome = valueLabel(t, 'outcome', data.ended.outcome), reason = reasonLabel(t, data.ended.reason), time = when(data.ended.at,
@@ -180,10 +183,10 @@ export function TicketPage({ id }: { id: string }) {
   return <>
     <PageHead title={data.title}>
       {opening?.url && <ActionLink href={opening.url}>{t('openThread', { source: valueLabel(t, 'source', opening.source) })}</ActionLink>}
-      {data.actions.retry && <ConfirmButton variant="outline" icon="refresh" label={t('retry')} title={t('retryTitle')}
+      {!stuck && data.actions.retry && <ConfirmButton variant="outline" icon="refresh" label={t('retry')} title={t('retryTitle')}
         message={t('retryConfirm', { title: data.title })}
         onConfirm={() => after(call('POST tickets/:id/retry', { id }))} />}
-      {data.actions.split && <SplitButton id={id} title={data.title} onDone={reload} />}
+      {!stuck && data.actions.split && <SplitButton id={id} title={data.title} onDone={reload} />}
       {data.sessionId && <SessionButton variant="outline" sessionId={data.sessionId} />}
     </PageHead>
     {error && <LoadState error={error} loading={false} />}
@@ -199,10 +202,22 @@ export function TicketPage({ id }: { id: string }) {
       {channel && <div className="dt-banner-actions">
         <ActionLink href={channel.url} icon="message">{t('answerIn', { source: valueLabel(t, 'source', channel.source) })}</ActionLink>
       </div>}</div>}
-    {/* Ordinary progress stays in the Session/Channels; only a report that halted work (blocked/failed) is shown here. */}
-    {data.actions.retry && data.summary && <p className={`dt-banner${failed ? ' dt-danger' : ''}${failedText ? ' dt-mono' : ''}`}>
-      <span className="dt-banner-label">{t(failed ? 'failedPrefix' : 'blockedPrefix')}</span>{data.summary}
-    </p>}
+    {/* Ordinary progress stays in the Session/Channels; only a report that halted work (blocked/failed) is shown here, with
+        what a person can do about it, because a stopped Ticket is where the next click is least obvious. */}
+    {data.actions.retry && data.summary && <div className={`dt-banner${failed ? ' dt-danger' : ''}`}>
+      <span className="dt-banner-label">{t(failed ? 'failedPrefix' : 'blockedPrefix')}</span>
+      <p className={failedText ? 'dt-mono' : undefined}>{data.summary}</p>
+      <p><Hint>{t(failed ? 'stuckFailedHint' : 'stuckBlockedHint')}</Hint></p>
+      <div className="dt-banner-actions">
+        {data.actions.retry && <ConfirmButton variant="outline" icon="refresh" label={t('retry')} title={t('retryTitle')}
+          message={t('retryConfirm', { title: data.title })}
+          onConfirm={() => after(call('POST tickets/:id/retry', { id }))} />}
+        {data.actions.split && <SplitButton id={id} title={data.title} onDone={reload} />}
+        {data.actions.stop && <ConfirmButton variant="outline" icon="stop" label={t('stop')} title={t('stopConfirmTitle')}
+          message={t('stopConfirm', { title: data.title })}
+          onConfirm={() => after(call('POST tickets/:id/stop', { id }))} />}
+      </div>
+    </div>}
     {data.deliveryError && <p className="dt-banner dt-danger dt-mono">
       <span className="dt-banner-label">{t('deliveryFailedPrefix')}</span>{data.deliveryError}
     </p>}

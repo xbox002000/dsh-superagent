@@ -67,6 +67,20 @@ it('replaces a stuck Ticket with smaller ones from its own page', async () => {
   expect(request?.body).toMatchObject({ parts: [{ title: '第一部分', scope: '先改说明' }, { title: '第二部分', scope: '再改文案' }] })
 })
 
+it('says what a stuck Ticket can do next, and puts the actions where it says so', async () => {
+  server.ticketDetails.t1 = { ...server.ticketDetails.t1!, stage: 'person', action: 'failed', summary: 'The prepare command failed',
+    actions: { retry: true, stop: true, split: true } }
+  await mount()
+  await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
+  const banner = document.querySelector('.dt-banner')!
+  expect(banner.textContent).toContain(zh.stuckFailedHint)
+  expect(banner.textContent).toContain('The prepare command failed')
+  const labels = [...banner.querySelectorAll('button')].map(button => button.textContent)
+  for (const label of [zh.retry, zh.split, zh.stop]) expect(labels).toContain(label)
+  // The page head no longer repeats them, so a stopped Ticket has one place to act.
+  expect(document.querySelector('.dt-page-head')?.textContent).not.toContain(zh.retry)
+})
+
 it('shows the other parts of a split request on the Ticket it belongs to', async () => {
   server.ticketDetails.t1 = { ...server.ticketDetails.t1!, parts: [
     { id: 't8', title: '第一部分', stage: 'ended', outcome: 'merged' },
