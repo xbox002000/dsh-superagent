@@ -33,7 +33,7 @@ export const AssessmentSchema = z.object({
   // A request too large for one Ticket: each part becomes a Ticket, and `depends_on` indexes earlier parts that must end first.
   parts: z.array(z.object({ title: z.string().min(1).max(160), worktree_name: WorktreeNameSchema, scope: z.string().max(1500),
     note: z.string().max(2000).optional(), depends_on: z.array(z.number().int().nonnegative()).max(6).optional() }).strict())
-    .min(2).max(6).optional().describe('Use when one request must become several Tickets that build on each other; depends_on indexes earlier parts.'),
+    .min(2).max(6).optional().describe('For work that must happen in order: each part becomes a Ticket; depends_on indexes earlier parts.'),
 }).strict().refine(value => value.decision !== 'accept' || !directionAllowed(value.direction) || !value.rule_assessments.some(rule => rule.matched)
   || !!value.worktree_name || !!value.parts?.length, { message: 'Accepted work requires a short English worktree_name', path: ['worktree_name'] })
 

@@ -26,7 +26,8 @@ describe('Source registry', () => {
     sources.register(probe); sources.register(githubKind)
     expect(sources.instances()).toEqual([
       { id: 'github', kind: 'github', enabled: true, config: { repository: '', cli: '', pollSeconds: 60, failuresBeforeError: 3,
-        observeIssues: false, observePulls: false, observeComments: false, observeCi: false }, installed: true },
+        observeIssues: false, observePulls: false, observeComments: false, observeCi: false,
+        autoMerge: false, autoMergePaths: '', autoMergeMaxFiles: 20, watchMergedMinutes: 0 }, installed: true },
       { id: 'probe', kind: 'probe', enabled: false, config: { interval: 9 }, installed: true },
       { id: 'retired', kind: 'retired', enabled: true, config: { x: 1 }, installed: false },
     ])

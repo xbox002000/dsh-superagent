@@ -50,7 +50,12 @@ export const GithubAccountsSchema = z.object({
 export const FeishuBotSchema = z.object({ cli: z.string().trim().default('') })
 /** Source configuration keys that affect deployment setup and trigger a restart when changed. */
 // `autoMerge` changes what the worker CLI shims refuse, so changing it rewrites them the way an account change does.
-export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { github: [...Object.keys(GithubAccountsSchema.shape), 'autoMerge'],
+/**
+ * The Source fields setup reads: changing one re-resolves the deployment and rewrites the worker shims, and only the panel may
+ * change them. `autoMerge` is deliberately not here — the shim it guards is rewritten at the next setup run (startup or an
+ * account change), and keeping it out means a Source's own Session can still save a Source block.
+ */
+export const SETUP_FIELDS: Readonly<Record<string, readonly string[]>> = { github: Object.keys(GithubAccountsSchema.shape),
   feishu: Object.keys(FeishuBotSchema.shape) }
 
 export interface Deployment extends Machine {
