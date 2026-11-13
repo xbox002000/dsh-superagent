@@ -1,8 +1,9 @@
-﻿/**
+/**
  * What the machine running the tests can actually do, so a test that needs a platform facility is skipped where the facility
  * is absent instead of failing there. A skip says "this could not run here"; a fix would say "the product is wrong", and the
  * two must not be confused when reading a red run.
  */
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,4 +33,17 @@ export const symlinks = ((): boolean => {
 
 /** The reason a suite is skipped here, for the message a reader sees. */
 export const noSymlinks = 'this platform cannot create symbolic links without Developer Mode'
+
+/**
+ * Whether the machine has the `tmux` the POSIX service script drives. A CI image may have the shell and python the script
+ * needs and still no tmux, so the suite asks rather than assuming one comes with POSIX.
+ */
+export const tmux = posix && ((): boolean => {
+  try {
+    execFileSync('tmux', ['-V'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
 

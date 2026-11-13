@@ -7,11 +7,12 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { posix } from './support/capabilities.ts'
+import { posix, tmux } from './support/capabilities.ts'
 
 // The script this suite covers manages a service with fcntl and tmux, which Windows does not have; there the same verbs are
-// scripts/superagent.ps1, whose contract (verbs, exit codes, JSON status) is verified by hand against a live service.
-describe.skipIf(!posix)('scripts/dsh-superagent', () => {
+// scripts/superagent.ps1, whose contract (verbs, exit codes, JSON status) is verified by hand against a live service. A CI
+// image can have the shell and python and still no tmux, so the suite asks instead of assuming POSIX implies tmux.
+describe.skipIf(!posix || !tmux)('scripts/dsh-superagent', () => {
 
 let root: string
 let server: Server | undefined
