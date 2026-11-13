@@ -136,6 +136,16 @@ Get-Content "$env:USERPROFILE\.dsh\state\superagent\events.jsonl" |
 .\scripts\superagent.ps1 restore -Backup <file>
 ```
 
+`scripts/summary.ps1` reads that journal and says what the last day held: Tickets created and ended by outcome, the ones released when what they waited for ended, split requests reported, Decisions by kind, and how much disk the state, the work root, the backups and the journal take. It writes `<stateDir>/summaries/<date>.json` and prints the same lines.
+
+```powershell
+.\scripts\summary.ps1                 # the last 24 hours
+.\scripts\summary.ps1 -Hours 168      # the last week
+.\scripts\summary.ps1 -Register       # a daily task at 09:00
+```
+
+Read the journal with `-Encoding UTF8`: it is written without a BOM, which Windows PowerShell otherwise reads as ANSI, and a Ticket title with Chinese in it then breaks the JSON parse and the event reads as absent.
+
 `start` runs `dsh --profile superagent` in tmux session `dsh-superagent`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
 
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.
