@@ -33,5 +33,9 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      # The POSIX service script drives tmux, and the runner image does not carry it; without this the suite skips itself.
+      - name: Install tmux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Typecheck, test and build
         run: pnpm check
