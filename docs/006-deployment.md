@@ -128,6 +128,14 @@ Get-Content "$env:USERPROFILE\.dsh\state\superagent\events.jsonl" |
 .\scripts\watchdog.ps1 -Unregister
 ```
 
+`backup` copies the database with SQLite's own `VACUUM INTO`, which is consistent even while the service runs, keeps the newest fourteen in `<stateDir>/backups`, and `restore` puts one back: it stops the service, checks that the file reads back before replacing anything, keeps the current database aside, drops the write-ahead log that belonged to the old file, and starts again. Restoring without that check is how a working database becomes a broken one.
+
+```powershell
+.\scripts\superagent.ps1 backup
+.\scripts\superagent.ps1 restore                      # the newest backup
+.\scripts\superagent.ps1 restore -Backup <file>
+```
+
 `start` runs `dsh --profile superagent` in tmux session `dsh-superagent`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
 
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.

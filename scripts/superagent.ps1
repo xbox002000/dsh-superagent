@@ -13,7 +13,13 @@
     A restart fixes neither 2 nor 3: they need a person.
 
 .PARAMETER Action
-  start | stop | restart | status | url
+  start | stop | restart | status | url | backup | restore
+
+.PARAMETER Backup
+  For `restore`: the file to restore from. Defaults to the newest one in `backups`.
+
+.PARAMETER Keep
+  For `backup`: how many daily files to keep before the oldest is removed. Defaults to 14.
 
 .PARAMETER Profile
   DSH profile name. Defaults to $env:DSH_SUPERAGENT_PROFILE, then `superagent`.
@@ -31,8 +37,11 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'restart', 'status', 'url')]
+  [ValidateSet('start', 'stop', 'restart', 'status', 'url', 'backup', 'restore')]
   [string]$Action = 'status',
+
+  [string]$Backup = '',
+  [int]$Keep = 14,
 
   [string]$Profile = $(if ($env:DSH_SUPERAGENT_PROFILE) { $env:DSH_SUPERAGENT_PROFILE } else { 'superagent' }),
   [string]$Url = $(if ($env:DSH_SUPERAGENT_URL) { $env:DSH_SUPERAGENT_URL } else { 'http://127.0.0.1:3082' }),
@@ -208,6 +217,91 @@ function Start-Service {
   $script:lastExit = 1
 }
 
+$database = Join-Path $stateDir 'orchestrator.sqlite'
+$backupDir = Join-Path $stateDir 'backups'
+$nodeExe = Join-Path $runtimeRoot 'dependencies\node\bin\node.exe'
+
+# Copies the database with SQLite's own `VACUUM INTO`, which writes a consistent file even while the service runs.
+function Invoke-Backup {
+  if (-not (Test-Path $database)) { Write-Step "no database at $database"; $script:lastExit = 1; return }
+  if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }
+  $target = Join-Path $backupDir ('orchestrator-{0}.sqlite' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+  $code = @'
+const { DatabaseSync } = require('node:sqlite')
+const [database, target] = process.argv.slice(2)
+const literal = target.replace(/\\/g, '/').replace(/'/g, "''")
+const db = new DatabaseSync(database)
+db.exec(`VACUUM INTO '${literal}'`)
+db.close()
+'@
+  $file = Join-Path $env:TEMP ('superagent-backup-{0}.cjs' -f [guid]::NewGuid().ToString('N'))
+  Set-Content -Path $file -Value $code -Encoding UTF8
+  try { & $nodeExe $file $database $target } catch { Write-Step "backup failed: $($_.Exception.Message)"; $script:lastExit = 1; return }
+  finally { Remove-Item $file -Force -ErrorAction SilentlyContinue }
+  if (-not (Test-Path $target)) { Write-Step 'backup wrote no file'; $script:lastExit = 1; return }
+  # Keep the newest `Keep` files; a daily backup of a small database is cheap, an unbounded pile is not.
+  Get-ChildItem $backupDir -File | Where-Object { $_.Name -match '^orchestrator-\d{8}-\d{6}\.sqlite$' } |
+    Sort-Object Name -Descending | Select-Object -Skip $Keep |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+  Write-Step ('backup: {0} ({1:N0} KB)' -f $target, ((Get-Item $target).Length / 1KB))
+  $script:lastExit = 0
+}
+
+# Asks SQLite whether a file is a database it can read. A copy of a WAL-mode database taken without its log passes no such check.
+function Test-Database([string]$file) {
+  $code = @'
+const { DatabaseSync } = require('node:sqlite')
+const db = new DatabaseSync(process.argv[2], { readOnly: true })
+const rows = db.prepare('PRAGMA integrity_check').all()
+db.close()
+process.stdout.write(rows.map(row => Object.values(row).join('')).join(';'))
+'@
+  $temp = Join-Path $env:TEMP ('superagent-check-{0}.cjs' -f [guid]::NewGuid().ToString('N'))
+  Set-Content -Path $temp -Value $code -Encoding UTF8
+  try { $result = & $nodeExe $temp $file } finally { Remove-Item $temp -Force -ErrorAction SilentlyContinue }
+  return "$result" -eq 'ok'
+}
+
+# Stops the service, keeps the current database aside, puts the chosen backup in place, and starts again.
+function Invoke-Restore {
+  $source = if ($Backup) { $Backup } else {
+    $newest = Get-ChildItem $backupDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^orchestrator-\d{8}-\d{6}\.sqlite$' } |
+      Sort-Object Name -Descending |
+      Select-Object -First 1
+    if ($newest) { $newest.FullName } else { '' }
+  }
+  if (-not $source) { Write-Step 'no backup to restore'; $script:lastExit = 1; return }
+  if (-not (Test-Path $source)) { Write-Step "missing: $source"; $script:lastExit = 1; return }
+  # A file that does not read back would replace a working database with a broken one, so nothing is touched.
+  if (-not (Test-Database $source)) { Write-Step "not a usable database: $source"; $script:lastExit = 1; return }
+  # A restore is not a person stopping the service, so no marker is written and the watchdog may start it again.
+  Stop-Service | Out-Null
+  # The write-ahead log belongs to the database it was written for: left beside another file it corrupts that one.
+  Remove-Item "$database-wal", "$database-shm" -Force -ErrorAction SilentlyContinue
+  if (Test-Path $database) {
+    $aside = Join-Path $backupDir ('orchestrator-before-restore-{0}.sqlite' -f (Get-Date).ToString('yyyyMMdd-HHmmss'))
+    # A copy of the main file alone loses whatever is still in the log, so the aside is taken the way a backup is.
+    $code = @'
+const { DatabaseSync } = require('node:sqlite')
+const [database, target] = process.argv.slice(2)
+const literal = target.replace(/\\/g, '/').replace(/'/g, "''")
+const db = new DatabaseSync(database)
+db.exec(`VACUUM INTO '${literal}'`)
+db.close()
+'@
+    $temp = Join-Path $env:TEMP ('superagent-aside-{0}.cjs' -f [guid]::NewGuid().ToString('N'))
+    Set-Content -Path $temp -Value $code -Encoding UTF8
+    try { & $nodeExe $temp $database $aside } catch { Write-Step "could not keep the current database: $($_.Exception.Message)" }
+    finally { Remove-Item $temp -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $aside) { Write-Step "kept the current database at $aside" }
+  }
+  Copy-Item $source $database -Force
+  if (-not (Test-Database $database)) { Write-Step 'the restored file does not read back; the previous one is kept aside'; $script:lastExit = 1; return }
+  Write-Step "restored $source"
+  Start-Service
+  $script:lastExit = if ($script:lastExit -eq 0) { 0 } else { 1 }
+}
+
 if (-not (Test-Path $profileDir)) { Write-Step "no profile at $profileDir"; exit 1 }
 
 $script:lastExit = 1
@@ -215,6 +309,8 @@ switch ($Action) {
   'status' { Invoke-Status; exit $script:lastExit }
   'url' { $token = Read-Token; if ($token) { "$($Url.TrimEnd('/'))/?token=$token"; exit 0 } else { Write-Step 'no token yet'; exit 1 } }
   'stop' { Stop-Service -Intentional; exit $script:lastExit }
+  'backup' { Invoke-Backup; exit $script:lastExit }
+  'restore' { Invoke-Restore; exit $script:lastExit }
   'start' { Start-Service; exit $script:lastExit }
   'restart' { Stop-Service -Intentional; if ($script:lastExit -ne 0) { exit $script:lastExit }; Start-Service; exit $script:lastExit }
 }
