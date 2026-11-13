@@ -67,6 +67,27 @@ it('replaces a stuck Ticket with smaller ones from its own page', async () => {
   expect(request?.body).toMatchObject({ parts: [{ title: '第一部分', scope: '先改说明' }, { title: '第二部分', scope: '再改文案' }] })
 })
 
+it('shows the other parts of a split request on the Ticket it belongs to', async () => {
+  server.ticketDetails.t1 = { ...server.ticketDetails.t1!, parts: [
+    { id: 't8', title: '第一部分', stage: 'ended', outcome: 'merged' },
+    { id: 't9', title: '第三部分', stage: 'working' }] }
+  await mount()
+  await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
+  const section = all('.dt-section').find(item => item.querySelector('.dt-section-title')?.textContent?.startsWith(zh.groupOf))!
+  // The count includes this Ticket, so a person sees the whole request rather than its parts.
+  expect(section.querySelector('.dt-count')?.textContent).toBe('3')
+  expect([...section.querySelectorAll('.dt-open')].map(button => button.textContent)).toEqual(['第一部分', '第三部分'])
+  expect(section.textContent).toContain(zh.groupHint)
+  expect(section.textContent).toContain(zh['outcome.merged'])
+})
+
+it('marks a row that is one part of a split request', async () => {
+  server.tickets.open = [ticketSummary({ group: 3 })]
+  await mount()
+  await click(zh['tab.execution'])
+  expect(all('.dt-chip, .dt-tag').map(item => item.textContent)).toContain('同组 3 张')
+})
+
 it('shows a Ticket with its stage, its Mandate details with the Trigger and Decision behind it, its Threads, and the rest behind disclosures', async () => {
   await mount()
   await click(all('.dt-open').find(button => button.textContent === '修复回归')!)

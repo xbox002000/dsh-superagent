@@ -23,6 +23,7 @@ export function TicketLine({ ticket, question, onChanged, context }: {
       <div className="dt-row-meta dt-ticket-meta">
         {ticket.threads.map(thread => <ThreadChip key={thread.key} thread={thread} />)}
         {context && <ContextTag />}
+        {ticket.group !== undefined && ticket.group > 1 && <Tag tone="outline" title={t('groupHint')}>{t('groupTag', { count: ticket.group })}</Tag>}
         {ticket.undelivered > 0 && <LabelValue label={t('ticketUndeliveredLabel')} value={ticket.undelivered} />}
         {note ? <span className={note.error ? 'dt-ticket-note dt-ticket-note-error' : 'dt-ticket-note'} title={note.text}>{note.text}</span>
           : <When at={ticket.updatedAt} />}

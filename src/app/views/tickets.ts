@@ -69,6 +69,16 @@ export function ticketDetail(host: ViewHost, id: string) {
     const text = (value.kind === 'text' || value.kind === 'note') && value.text ? { text: markdown(value.text) } : {}
     return { ...value, ...text, delivered: !ticket.undelivered.includes(value.id), ...shown ? { trigger: shown } : {} }
   }
+  // The other Tickets of a split request, so a part reads as one piece of work rather than as an unrelated Ticket.
+  const parts = (ticket.siblings ?? []).flatMap(other => {
+    if (other === id) return []
+    const sibling = store.tickets.get(other)
+    if (!sibling) return []
+    const siblingStage = ticketStage(sibling)
+    return [{ id: sibling.id, title: sibling.title, stage: siblingStage.stage,
+      ...'action' in siblingStage ? { action: siblingStage.action } : {},
+      ...sibling.ended ? { outcome: sibling.ended.outcome } : {} }]
+  })
   // Pass `human = false` for bot-originated mandates so the Source kind still labels the actor as a bot if removed from the policy list.
   const human = ticket.mandate.basis.via !== 'bot'
   return { ...ticketLine(view, ticket), mandate: { ...ticket.mandate, actor: view.actor(ticket.mandate.actor, human) },
@@ -82,6 +92,6 @@ export function ticketDetail(host: ViewHost, id: string) {
     inputs: ticket.inputs.slice().reverse().map(input),
     // Threads followed for context only (e.g., related issues) grant no authority and are marked with `context: true`.
     threads: view.threadsOf(id).map(thread => ({ ...threadSummary(view, thread),
-      ...thread.context?.includes(id) ? { context: true as const } : {} })) }
+      ...thread.context?.includes(id) ? { context: true as const } : {} })), ...parts.length ? { parts } : {} }
 }
 export type TicketDetailView = NonNullable<ReturnType<typeof ticketDetail>>

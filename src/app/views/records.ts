@@ -130,7 +130,9 @@ export function ticketSummary(ticket: Ticket) {
     updatedAt: ticket.updatedAt,
     // A part of a split request waits without an Assignment; naming what it waits for explains a queued row.
     ...ticket.dependsOn?.length ? { dependsOn: ticket.dependsOn } : {},
-    ...ticket.parent ? { parent: ticket.parent } : {} }
+    ...ticket.parent ? { parent: ticket.parent } : {},
+    // How many Tickets the split request has, so a row says it is one part of something larger.
+    ...ticket.siblings?.length && ticket.siblings.length > 1 ? { group: ticket.siblings.length } : {} }
 }
 export type TicketSummaryView = ReturnType<typeof ticketSummary>
 function threadUrl(store: Store, thread: Thread): string | undefined {

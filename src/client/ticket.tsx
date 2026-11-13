@@ -158,7 +158,7 @@ function MandateDetails({ ticket, actor }: { ticket: TicketPageView; actor: stri
 }
 
 export function TicketPage({ id }: { id: string }) {
-  const { t, call } = usePanel()
+  const { t, call, navigate } = usePanel()
   const { data, error, reload } = usePoll(() => call('GET tickets/:id', { id }), [id])
   const after = async (request: Promise<unknown>) => { await request; await reload() }
   if (!data) return <><PageHead
@@ -207,6 +207,18 @@ export function TicketPage({ id }: { id: string }) {
       <span className="dt-banner-label">{t('deliveryFailedPrefix')}</span>{data.deliveryError}
     </p>}
     <MandateDetails ticket={data} actor={actor} />
+    {data.parts && data.parts.length > 0 && <Section title={t('groupOf')} count={data.parts.length + 1}>
+      {/* The other parts of one split request: a part on its own page would otherwise read as unrelated work. */}
+      <Hint>{t('groupHint')}</Hint>
+      <ul className="dt-list">{data.parts.map(part => <li key={part.id} className="dt-row dt-link">
+        <div className="dt-row-main">
+          <button type="button" className="dt-open dt-open-wrap"
+            onClick={() => navigate({ page: 'execution', id: part.id })}>{part.title}</button>
+          <span className="dt-row-meta">{part.outcome ? valueLabel(t, 'outcome', part.outcome)
+            : valueLabel(t, 'stage', part.stage)}</span>
+        </div>
+      </li>)}</ul>
+    </Section>}
     {undelivered.length > 0 && <Section title={t('undeliveredInputs')} count={undelivered.length}>
       <Hint>{data.deliveryError ? t('inputRetryHint') : data.paused ? t('inputPausedHint') : t('inputWaitingHint')}</Hint>
       <InputList inputs={undelivered} />
