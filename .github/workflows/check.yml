@@ -1,0 +1,37 @@
+# Runs the same checks the project asks for locally (`pnpm check`: typecheck, tests, build) on both platforms it supports.
+#
+# Windows is not an afterthought here: the suite's POSIX assumptions hid a real deployment bug for a whole day, and the only
+# way to keep them from creeping back is to run both platforms on every change.
+name: check
+
+on:
+  push:
+    branches: [integration, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck, test and build
+        run: pnpm check
