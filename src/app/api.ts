@@ -33,6 +33,9 @@ export interface Api {
   'GET tickets': { query?: Paged & { state?: TicketFilter }; response: TicketListView }
   'GET tickets/:id': { response: TicketPageView }
   'POST tickets/:id/retry': { response: { retried: true } }
+  /** Replace a stuck Ticket with smaller ones that keep its authority; `depends_on` indexes earlier parts. */
+  'POST tickets/:id/split': { body: { reason?: string; parts: { title: string; scope: string; name?: string; note?: string; depends_on?: number[] }[] };
+    response: { tickets: string[] } }
   'POST tickets/:id/stop': { response: { stopped: true } }
   'POST executor/pause': { body: { paused: boolean }; response: { paused: boolean } }
   'PUT settings/:block': { body: { value: unknown; revision: number }; response: { revision: number; restarting: boolean } }

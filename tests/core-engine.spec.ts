@@ -1065,6 +1065,23 @@ describe('automatic input', () => {
     expect(group).toHaveLength(1)
     expect((group[0]!.data.parts as unknown[]).length).toBe(2)
   })
+  it('replaces a stuck ticket with smaller ones that keep its authority', () => {
+    const h = harness()
+    accepted(h, '1', 't1')
+    const original = h.repo.tickets.open()[0]!
+    const ids = h.engine.splitTicket(original.id, [{ title: 'Part one', scope: 'first half' },
+      { title: 'Part two', scope: 'second half', dependsOn: [0] }], 'too much at once')
+    expect(ids).toHaveLength(2)
+    // The ticket it replaces ends as dropped, with the reason it gave.
+    expect(h.repo.tickets.get(original.id)!.ended).toMatchObject({ outcome: 'dropped', reason: 'too much at once' })
+    const [one, two] = ids.map(id => h.repo.tickets.get(id)!)
+    // The parts keep the original's authority and are siblings of one group.
+    expect(one!.mandate.strength).toBe(original.mandate.strength)
+    expect(one!.siblings).toEqual(ids)
+    expect(two!.dependsOn).toEqual([one!.id])
+    expect(one!.assignments.length).toBe(1)
+    expect(two!.assignments.length).toBe(0)
+  })
   it('launches a failed launch again for a person\'s message, but not for a Policy change', () => {
     const h = harness()
     h.engine.receive(trigger('1')); h.pump()

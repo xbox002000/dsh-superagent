@@ -165,6 +165,22 @@ export function mainTools(host: MainToolsHost, agent: Agent): Tool[] {
       execute: async args => routed(host, { reason: 'Started a new assignment', ticketId: host.engine.retryTicket(args.ticket_id).id }),
     }),
     tool({
+      name: 'orchestrator_ticket_split',
+      description: 'Replace a ticket whose work keeps failing because it asks for too much with two to six smaller tickets that keep its authority; the original ends as dropped and the parts are siblings. depends_on indexes earlier parts that must finish first.',
+      schema: z.object({
+        ticket_id: z.string().min(1),
+        reason: z.string().trim().min(1).max(200).optional().describe('Why the work is split, shown on the ticket it replaces.'),
+        parts: z.array(z.object({ title: z.string().min(1).max(160), scope: z.string().max(1500), name: WorktreeNameSchema.optional(),
+          note: z.string().max(2000).optional(), depends_on: z.array(z.number().int().nonnegative()).max(6).optional() }).strict()).min(2).max(6),
+      }).strict(),
+      execute: async args => {
+        const ids = host.engine.splitTicket(args.ticket_id, args.parts.map(part => ({ title: part.title, scope: part.scope,
+          ...part.name ? { name: part.name } : {}, ...part.note ? { note: part.note } : {},
+          ...part.depends_on?.length ? { dependsOn: part.depends_on } : {} })), args.reason)
+        return routed(host, { reason: `Split into ${ids.length} tickets`, ticketId: ids[0] })
+      },
+    }),
+    tool({
       name: 'orchestrator_ticket_request_status',
       description: 'Ask the worker of an idle ticket, one whose turn ended without a report, for a status report; for other tickets it sends nothing and returns the card.',
       schema: z.object({ ticket_id: z.string() }).strict(),

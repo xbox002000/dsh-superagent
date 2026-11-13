@@ -191,6 +191,16 @@ function routes(runtime: HttpHost): Routes {
     },
     'GET tickets/:id': ({ params }) => ticketPage(runtime, params.id),
     'POST tickets/:id/retry': ({ params }) => { const id = ticket(params.id); runtime.engine.retryTicket(id); return { retried: true } },
+    // The panel and an operator's script may split a stuck ticket the same way the main Session does.
+    'POST tickets/:id/split': async ({ params, body }) => {
+      const request = z.object({ reason: z.string().trim().max(200).optional(), parts: z.array(z.object({ title: z.string().min(1).max(160),
+        scope: z.string().max(1500), name: z.string().max(64).optional(), note: z.string().max(2000).optional(),
+        depends_on: z.array(z.number().int().nonnegative()).max(6).optional() }).strict()).min(2).max(6) }).strict().parse(await body())
+      const ids = runtime.engine.splitTicket(ticket(params.id), request.parts.map(part => ({ title: part.title, scope: part.scope,
+        ...part.name ? { name: part.name } : {}, ...part.note ? { note: part.note } : {},
+        ...part.depends_on?.length ? { dependsOn: part.depends_on } : {} })), request.reason)
+      return { tickets: ids }
+    },
     'POST tickets/:id/stop': ({ params }) => { const id = ticket(params.id); runtime.engine.stopTicket(id); return { stopped: true } },
     'POST executor/pause': async ({ body }) => runtime.settings.pause(z.object({ paused: z.boolean() }).parse(await body()).paused, 'panel'),
     'PUT settings/:block': async ({ params, body }) => {

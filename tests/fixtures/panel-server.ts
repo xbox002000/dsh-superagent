@@ -334,6 +334,10 @@ const ROUTES: { [K in keyof Api]: Route<K> } = {
     return ticket.actions.retry ? { retried: true } : refuse(400, 'Only an open ticket can be retried, and only when its worker last reported failed or blocked and no person has sent a message since, or when delivering an Input to its worker failed',
       { code: 'notRetryable', values: {} })
   } },
+  'POST tickets/:id/split': { body: true, answer: ({ params, body }) => {
+    if (!ticketOf(params.id)) return refuse(404, 'Ticket not found')
+    return { tickets: body.parts.map((_, index) => `split-${index}`) }
+  } },
   'POST tickets/:id/stop': { answer: ({ params }) => {
     if (!ticketOf(params.id)) return refuse(404, 'Ticket not found')
     server.tickets.open = []; server.person = server.person.filter(ticket => ticket.id !== params.id)

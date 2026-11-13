@@ -60,6 +60,33 @@ export class Tickets extends EnginePart {
     this.emit('ticket.created', { ticketId: id, decisionId, strength: mandate.strength })
   }
   /**
+   * Replaces an open Ticket with smaller ones that keep its Mandate, for work that keeps failing because it asks for too much
+   * at once. The parts become siblings, the Ticket ends as `dropped` with `reason`, and a part whose dependencies are already
+   * met starts at once. Returns the new Ticket ids.
+   * @throws UserError when the ticket is unknown or has ended, or `parts` names fewer than two.
+   */
+  split(ticketId: string, parts: readonly { title: string; scope: string; name?: string; note?: string; dependsOn?: number[] }[],
+    reason = `Split into ${parts.length} smaller tickets`): string[] {
+    const parent = this.require(ticketId)
+    if (!liveTicket(parent)) throw new UserError('ticketEnded')
+    if (parts.length < 2) throw new Error('A split needs at least two parts')
+    const at = this.now()
+    const ids = parts.map((_, index) => key('ticket', ticketId, 'part', String(index)))
+    parts.forEach((part, index) => {
+      const dependsOn = (part.dependsOn ?? []).flatMap(other => ids[other] ? [ids[other]!] : [])
+      const ticket: Ticket = { id: ids[index]!, title: part.title, decisionId: parent.decisionId,
+        mandate: { ...parent.mandate, scope: part.scope }, channels: [...parent.channels], assignments: [], inputs: [], undelivered: [],
+        createdAt: at, updatedAt: at, origin: parent.origin, siblings: ids,
+        ...index ? { parent: ticketId } : {}, ...dependsOn.length ? { dependsOn } : {} }
+      const assignment = this.dependenciesMet(ticket) ? this.newAssignment(ticket) : undefined
+      this.repo.tickets.save(ticket)
+      if (assignment) this.options.executor.start(ticket, assignment)
+      this.emit('ticket.created', { ticketId: ticket.id, decisionId: parent.decisionId, strength: parent.mandate.strength })
+    })
+    this.end(ticketId, 'executor', 'dropped', at, reason)
+    return ids
+  }
+  /**
    * Subscribes an open ticket to `thread` and records it in `ticket.follows` (`own` when opened by the ticket).
    * @throws UserError when the ticket is unknown or has ended.
    */
@@ -380,8 +407,7 @@ export class Tickets extends EnginePart {
     this.emit('group.ended', { decisionId: ticket.decisionId,
       parts: parts.map(part => ({ id: part!.id, title: part!.title, outcome: part!.ended!.outcome })) })
   }
-  /** True when every Ticket this one names has ended; a dependency that no longer exists counts as ended. */
-  dependenciesMet(ticket: Ticket): boolean {
+  /** True when every Ticket this one names has ended; a dependency that no longer exists counts as ended. */  dependenciesMet(ticket: Ticket): boolean {
     return (ticket.dependsOn ?? []).every(id => {
       const dependency = this.repo.tickets.get(id)
       return !dependency || !liveTicket(dependency)
