@@ -50,6 +50,23 @@ it('stops an open Ticket from its page after confirmation', async () => {
   expect(server.requests.some(request => request.path === 'tickets/t1/stop' && request.method === 'POST')).toBe(true)
 })
 
+it('replaces a stuck Ticket with smaller ones from its own page', async () => {
+  await mount()
+  await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
+  await click(zh.split)
+  // Two parts by default, each with a title and a scope; the second may name the parts it waits for.
+  const inputs = [...document.querySelectorAll<HTMLInputElement>('.dt-modal input')]
+  expect(inputs.length).toBe(4)
+  await type(inputs[0]!, '第一部分')
+  await type(inputs[1]!, '先改说明')
+  await type(inputs[2]!, '第二部分')
+  await type(inputs[3]!, '再改文案')
+  await click(zh.splitSubmit)
+  const request = server.requests.find(item => item.path.endsWith('/split'))
+  expect(request?.method).toBe('POST')
+  expect(request?.body).toMatchObject({ parts: [{ title: '第一部分', scope: '先改说明' }, { title: '第二部分', scope: '再改文案' }] })
+})
+
 it('shows a Ticket with its stage, its Mandate details with the Trigger and Decision behind it, its Threads, and the rest behind disclosures', async () => {
   await mount()
   await click(all('.dt-open').find(button => button.textContent === '修复回归')!)
@@ -196,7 +213,7 @@ it('gives a Ticket a bot\'s message started its basis, marks a Thread it follows
 })
 
 it('words an ended Ticket by its outcome, on its row and its page, with a person\'s reason after it', async () => {
-  const fields = { id: 't3', title: '已合并的工单', state: 'ended' as const, actions: { retry: false, stop: false },
+  const fields = { id: 't3', title: '已合并的工单', state: 'ended' as const, actions: { retry: false, stop: false, split: false },
     ended: { at: '2026-09-21T00:00:00Z', by: 'executor' as const, outcome: 'merged' as const } }
   server.tickets.ended = [ticketSummary(fields, { stage: 'ended' }), ...server.tickets.ended]
   server.ticketDetails.t3 = { ...server.ticketDetails.t1!, ...fields, stage: 'ended' }

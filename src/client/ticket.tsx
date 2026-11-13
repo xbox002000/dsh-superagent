@@ -1,17 +1,69 @@
 /** Ticket detail page: stage and actions, Mandate details, undelivered/delivered Inputs, subscribed Threads, and Assignments. */
 import { useState, type ReactNode } from 'react'
 import { ApiError, usePoll, type TicketPageView } from './api.ts'
-import { DisclosureRow, Dot, Icon, Tag, type IconName } from './controls.tsx'
+import { Button, DisclosureRow, Dot, Icon, Input, Modal, Pill, Tag, type IconName } from './controls.tsx'
 import { decisionMark, reportDot, ticketMark } from './marks.ts'
-import { usePanel } from './provider.tsx'
+import { useAction, usePanel } from './provider.tsx'
 import { settingsRoute } from './route.ts'
 import { Earlier, ThreadLine, automatedRuns } from './rows.tsx'
 import { actorName, localized, readableMarkers, reasonLabel, valueLabel, when } from './text.ts'
 import { ActionLink, ConfirmButton, ExternalLink, Hint, KeyValues, LabelValue, LoadState, MarkdownLite, PageHead, Section, SessionButton,
   StageMark, When } from './widgets.tsx'
 
-type Input = TicketPageView['inputs'][number]
-function InputLine({ input, earlier = [] }: { input: Input; earlier?: { id: string; at: string; preview: string }[] }) {
+/**
+ * Replaces an open Ticket with smaller ones, for work that keeps failing because it asks for too much. Each row becomes a
+ * Ticket that keeps the original's authority; a row may wait on the rows above it, which is how a request with an order to it
+ * is expressed. The Ticket this replaces ends as dropped.
+ */
+function SplitButton({ id, title, onDone }: { id: string; title: string; onDone: () => Promise<unknown> }) {
+  const { t, call, navigate } = usePanel()
+  const [open, setOpen] = useState(false)
+  const [parts, setParts] = useState<{ title: string; scope: string; dependsOn: number[] }[]>([
+    { title: '', scope: '', dependsOn: [] }, { title: '', scope: '', dependsOn: [] }])
+  const split = useAction(async () => {
+    const created = await call('POST tickets/:id/split', { id, body: { parts: parts.map(part => ({ title: part.title.trim(),
+      scope: part.scope.trim(), ...part.dependsOn.length ? { depends_on: part.dependsOn } : {} })) } })
+    const first = created.tickets[0]
+    if (first) navigate({ page: 'execution', id: first })
+  }, { reload: onDone })
+  const ready = parts.length >= 2 && parts.every(part => part.title.trim() && part.scope.trim())
+  const edit = (index: number, patch: Partial<{ title: string; scope: string; dependsOn: number[] }>) =>
+    setParts(current => current.map((part, at) => at === index ? { ...part, ...patch } : part))
+  const waits = (index: number, on: number) => edit(index, { dependsOn: parts[index]!.dependsOn.includes(on)
+    ? parts[index]!.dependsOn.filter(value => value !== on) : [...parts[index]!.dependsOn, on] })
+  return <>
+    <Button variant="outline" size="sm" icon={<Icon name="queue" size={14} />} onClick={() => setOpen(true)}>{t('split')}</Button>
+    <Modal open={open} onClose={() => setOpen(false)} title={t('splitTitle')} closeLabel={t('close')}
+      description={t('splitHint', { title })}
+      footer={<>
+        <Button variant="ghost" onClick={() => setOpen(false)}>{t('cancel')}</Button>
+        <Button variant="primary" disabled={!ready || split.busy} onClick={() => void split.run()}>{t('splitSubmit')}</Button>
+      </>}>
+      <ul className="dt-list">
+        {parts.map((part, index) => <li key={index} className="dt-row">
+          <div className="dt-row-main">
+            <Input value={part.title} placeholder={t('splitPartTitle', { number: index + 1 })} aria-label={t('splitPartTitle', { number: index + 1 })}
+              onChange={event => edit(index, { title: event.target.value })} />
+            <Input value={part.scope} placeholder={t('splitPartScope')} aria-label={t('splitPartScope')}
+              onChange={event => edit(index, { scope: event.target.value })} />
+            {index > 0 && <div className="dt-row-meta">
+              <span>{t('splitWaitsOn')}</span>
+              {parts.slice(0, index).map((_, earlier) => <Pill key={earlier} active={part.dependsOn.includes(earlier)}
+                onClick={() => waits(index, earlier)}>{earlier + 1}</Pill>)}
+            </div>}
+          </div>
+          {parts.length > 2 && <Button variant="ghost" size="sm" icon={<Icon name="trash" size={14} />}
+            onClick={() => setParts(current => current.filter((_, at) => at !== index))}>{t('splitRemove')}</Button>}
+        </li>)}
+      </ul>
+      {parts.length < 6 && <Button variant="ghost" size="sm" icon={<Icon name="plus" size={14} />}
+        onClick={() => setParts(current => [...current, { title: '', scope: '', dependsOn: [] }])}>{t('splitAdd')}</Button>}
+    </Modal>
+  </>
+}
+
+type TicketInput = TicketPageView['inputs'][number]
+function InputLine({ input, earlier = [] }: { input: TicketInput; earlier?: { id: string; at: string; preview: string }[] }) {
   const { t, navigate } = usePanel()
   const trigger = input.kind === 'trigger' ? input.trigger : undefined
   return <li className="dt-row">
@@ -29,10 +81,10 @@ function InputLine({ input, earlier = [] }: { input: Input; earlier?: { id: stri
     </div>
   </li>
 }
-function InputList({ inputs }: { inputs: Input[] }) {
-  const sender = (input: Input) => input.kind === 'trigger' && input.trigger && !input.trigger.human
+function InputList({ inputs }: { inputs: TicketInput[] }) {
+  const sender = (input: TicketInput) => input.kind === 'trigger' && input.trigger && !input.trigger.human
     ? `${input.trigger.actor.source}:${input.trigger.actor.id}` : undefined
-  const shown = (input: Input) => ({ id: input.id, at: input.at, preview: input.kind === 'trigger' ? input.trigger?.preview ?? '' : '' })
+  const shown = (input: TicketInput) => ({ id: input.id, at: input.at, preview: input.kind === 'trigger' ? input.trigger?.preview ?? '' : '' })
   return <ul className="dt-list">{automatedRuns(inputs, sender).map(run => <InputLine key={run.item.id} input={run.item}
     earlier={run.earlier.map(shown)} />)}</ul>
 }
@@ -131,6 +183,7 @@ export function TicketPage({ id }: { id: string }) {
       {data.actions.retry && <ConfirmButton variant="outline" icon="refresh" label={t('retry')} title={t('retryTitle')}
         message={t('retryConfirm', { title: data.title })}
         onConfirm={() => after(call('POST tickets/:id/retry', { id }))} />}
+      {data.actions.split && <SplitButton id={id} title={data.title} onDone={reload} />}
       {data.sessionId && <SessionButton variant="outline" sessionId={data.sessionId} />}
     </PageHead>
     {error && <LoadState error={error} loading={false} />}
