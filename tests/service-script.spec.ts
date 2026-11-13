@@ -6,7 +6,12 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { posix } from './support/capabilities.ts'
+
+// The script this suite covers manages a service with fcntl and tmux, which Windows does not have; there the same verbs are
+// scripts/superagent.ps1, whose contract (verbs, exit codes, JSON status) is verified by hand against a live service.
+describe.skipIf(!posix)('scripts/dsh-superagent', () => {
 
 let root: string
 let server: Server | undefined
@@ -232,3 +237,4 @@ it('does not signal a process that took the recorded service PID, and keeps a st
   expect(await run('stop', '--stop-timeout', '1')).toMatchObject({ code: 1, stderr: expect.stringContaining('Graceful stop timed out') })
   expect(existsSync(join(control('superagent'), 'manually-stopped'))).toBe(true)
 }, 20_000)
+})
