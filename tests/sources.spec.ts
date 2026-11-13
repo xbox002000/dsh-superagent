@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { posix } from './support/capabilities.ts'
 import { Engine, MemoryRepositories, key, type Assessor, type Executor, type Thread, type Ticket, type Trigger } from '../src/core/index.ts'
 import { backfillChat, consumerRetry, feishuKind, feishuTriggerId, feishuRef, feishuTime, feishuTrigger, historyEvent }
   from '../src/sources/feishu.ts'
@@ -1033,7 +1034,8 @@ it('reports GitHub as failing only after the configured number of consecutive fa
     observePulls: false, observeComments: false, observeCi: false,
     autoMerge: false, autoMergePaths: '', autoMergeMaxFiles: 20, watchMergedMinutes: 0 })
 })
-describe('feishu event consumer', () => {
+// The consumer these tests drive is a POSIX program the fixture writes; the deployment's Feishu source is off here.
+describe.skipIf(!posix)('feishu event consumer', () => {
   let dir: string
   let controller: AbortController
   let running: Promise<unknown> | undefined
