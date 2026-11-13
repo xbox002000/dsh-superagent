@@ -146,6 +146,28 @@ Get-Content "$env:USERPROFILE\.dsh\state\superagent\events.jsonl" |
 
 Read the journal with `-Encoding UTF8`: it is written without a BOM, which Windows PowerShell otherwise reads as ANSI, and a Ticket title with Chinese in it then breaks the JSON parse and the event reads as absent.
 
+### A second profile, for a second repository
+
+One profile watches one repository. A second one runs beside it with its own port, state directory and lock, and shares the checkout:
+
+```powershell
+# 1. Copy the configuration, not the plugin: copying node_modules turns the junction into a full copy of the checkout.
+robocopy "$env:USERPROFILE\.dsh\profiles\superagent" "$env:USERPROFILE\.dsh\profiles\acme" /E /XD node_modules
+New-Item -ItemType Junction -Path "$env:USERPROFILE\.dsh\profiles\acme\node_modules" -Target "$env:USERPROFILE\.dsh\profiles\superagent\node_modules"
+# 2. In acme's cordis.patch.yml, give the webserver another port and dsh-superagent another stateDir.
+# 3. Start it and open its own panel.
+.\scripts\superagent.ps1 start -Profile acme -Url http://127.0.0.1:3083
+```
+
+The account has to be able to push to the second repository, and adding a collaborator is an invitation the agent must accept before the setup check passes:
+
+```powershell
+gh api -X PUT repos/<owner>/<repo>/collaborators/22556x -f permission=push
+$env:GH_CONFIG_DIR="$env:USERPROFILE\.config\gh-agent"; gh api -X PATCH user/repository_invitations/<id>
+```
+
+Then set that profile's GitHub Source to the repository from its own panel at `127.0.0.1:3083`.
+
 `start` runs `dsh --profile superagent` in tmux session `dsh-superagent`, or `dsh-<profile>` for another profile. It waits up to one minute for the runtime to become ready or report a setup requirement. On a first run it prints the missing setup information. It refuses duplicate instances, including ones started outside this script.
 
 `stop` and `restart` request graceful shutdown and wait up to five minutes for Executors. They never force-kill the process or touch other tmux sessions.

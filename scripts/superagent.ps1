@@ -60,7 +60,7 @@ $outLog = Join-Path $stateDir 'host.out.log'
 $errLog = Join-Path $stateDir 'host.err.log'
 $pidFile = Join-Path $stateDir 'host.pid'
 $stopMarker = Join-Path $stateDir 'stopped-by-person'
-$lockFile = Join-Path $home_ '.dsh\state\superagent.lock'
+$lockFile = "$stateDir.lock"
 
 $exe = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness\DeepSeek Harness.exe'
 # Paths inside app.asar are only readable to Electron, so the archive itself is what can be checked from here.
